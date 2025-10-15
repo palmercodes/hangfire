@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "wishlist-expo",
+    "slug": "wishlist-expo",
+    "scheme": "wishlist",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": null,
+    "splash": {
+      "image": null,
+      "resizeMode": "contain",
+      "backgroundColor": "#4A7C59"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": null,
+        "backgroundColor": "#FFFFFF"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": null
+    }
+  }
+}

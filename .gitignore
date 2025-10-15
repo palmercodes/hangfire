@@ -1,0 +1,20 @@
+# Node / Expo
+node_modules/
+.expo/
+.expo-shared/
+.parcel-cache/
+dist/
+web-build/
+
+# Mac
+.DS_Store
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Expo iOS/Android native directories (managed workflow)
+ios/
+android/
+

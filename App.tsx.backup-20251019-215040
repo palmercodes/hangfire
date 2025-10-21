@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { SafeAreaView, View, Text, FlatList, Pressable, Image, StyleSheet, useColorScheme, Alert, Animated, Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Switch, Linking } from 'react-native';
+import { SafeAreaView, View, Text, FlatList, Pressable, Image, StyleSheet, useColorScheme, Alert, Animated, Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Switch, Linking, ActionSheetIOS } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
@@ -28,6 +28,7 @@ type WishlistItem = {
   datePurchased?: string; // ISO
   options?: ItemOption[];
   selectedOptionId?: string; // ID of currently selected option
+  pointHistory?: { date: string; points: number }[]; // Track daily point changes
 };
 
 type PersistedState = {
@@ -36,7 +37,7 @@ type PersistedState = {
   lastResetDate: string; // yyyy-mm-dd
 };
 
-const MAX_DAILY_POINTS = 3;
+const MAX_DAILY_POINTS = 15; // Temporarily increased for testing trending feature
 const STORAGE_KEY = 'wishlist_app_state_v2';
 const GREEN = '#4A7C59';
 
@@ -50,6 +51,33 @@ function formatPrice(price: number): string {
 function getTodayKey(): string {
   const now = new Date();
   return now.toISOString().slice(0, 10);
+}
+
+function getWeeklyPoints(item: WishlistItem): number {
+  if (!item.pointHistory || item.pointHistory.length === 0) {
+    return 0;
+  }
+  
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const sevenDaysAgoKey = sevenDaysAgo.toISOString().slice(0, 10);
+  
+  // Calculate points added in the last 7 days
+  let weeklyPoints = 0;
+  for (const entry of item.pointHistory) {
+    if (entry.date >= sevenDaysAgoKey) {
+      weeklyPoints += entry.points;
+    }
+  }
+  
+  return weeklyPoints;
+}
+
+function getTrendingStatus(item: WishlistItem): 'none' | 'trending' | 'hot' {
+  const weeklyPoints = getWeeklyPoints(item);
+  if (weeklyPoints >= 10) return 'hot';
+  if (weeklyPoints >= 5) return 'trending';
+  return 'none';
 }
 
 async function scrapeImageFromUrl(url: string): Promise<string | null> {
@@ -229,6 +257,8 @@ function MainApp() {
   const [isOptionScraping, setIsOptionScraping] = useState(false);
   const [isSortingFrozen, setIsSortingFrozen] = useState(false);
   const [frozenItems, setFrozenItems] = useState<WishlistItem[]>([]);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importData, setImportData] = useState('');
 
   const sortedItems = useMemo(() => {
     // Use frozen items if sorting is temporarily frozen
@@ -356,7 +386,20 @@ function MainApp() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         return prev;
       }
-      const next = prev.map(it => (it.id === id ? { ...it, points: it.points + 1 } : it));
+      const today = getTodayKey();
+      const next = prev.map(it => {
+        if (it.id === id) {
+          const newPointHistory = [...(it.pointHistory || [])];
+          const todayEntry = newPointHistory.find(entry => entry.date === today);
+          if (todayEntry) {
+            todayEntry.points += 1;
+          } else {
+            newPointHistory.push({ date: today, points: 1 });
+          }
+          return { ...it, points: it.points + 1, pointHistory: newPointHistory };
+        }
+        return it;
+      });
       return next;
     });
     setRemainingPoints(p => (p > 0 ? p - 1 : p));
@@ -384,7 +427,20 @@ function MainApp() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         return prev;
       }
-      const next = prev.map(it => (it.id === id ? { ...it, points: Math.max(0, it.points - 1) } : it));
+      const today = getTodayKey();
+      const next = prev.map(it => {
+        if (it.id === id) {
+          const newPointHistory = [...(it.pointHistory || [])];
+          const todayEntry = newPointHistory.find(entry => entry.date === today);
+          if (todayEntry) {
+            todayEntry.points = Math.max(0, todayEntry.points - 1);
+          } else {
+            newPointHistory.push({ date: today, points: -1 });
+          }
+          return { ...it, points: Math.max(0, it.points - 1), pointHistory: newPointHistory };
+        }
+        return it;
+      });
       return next;
     });
     setRemainingPoints(p => (p < MAX_DAILY_POINTS ? p + 1 : p));
@@ -403,6 +459,82 @@ function MainApp() {
     setRemainingPoints(MAX_DAILY_POINTS);
     setLastResetDate(getTodayKey());
   }, []);
+
+  const exportData = useCallback(async () => {
+    try {
+      const exportData = {
+        items,
+        remainingPoints,
+        lastResetDate,
+        exportedAt: new Date().toISOString(),
+        version: '2.0'
+      };
+      
+      const jsonString = JSON.stringify(exportData, null, 2);
+      await Clipboard.setStringAsync(jsonString);
+      
+      Alert.alert('Export Complete', 'Data copied to clipboard');
+    } catch (error) {
+      Alert.alert('Export Failed', 'Could not copy data to clipboard');
+    }
+  }, [items, remainingPoints, lastResetDate]);
+
+  const handleImportData = useCallback(async () => {
+    try {
+      const parsedData = JSON.parse(importData);
+      
+      // Validate the data structure
+      if (!parsedData.items || !Array.isArray(parsedData.items)) {
+        Alert.alert('Import Failed', 'Invalid data format');
+        return;
+      }
+
+      // Set the imported data
+      setItems(parsedData.items);
+      if (parsedData.remainingPoints !== undefined) {
+        setRemainingPoints(parsedData.remainingPoints);
+      }
+      if (parsedData.lastResetDate) {
+        setLastResetDate(parsedData.lastResetDate);
+      }
+
+      setIsImportModalOpen(false);
+      setImportData('');
+      Alert.alert('Import Complete', `Successfully imported ${parsedData.items.length} items`);
+    } catch (error) {
+      Alert.alert('Import Failed', 'Invalid JSON format');
+    }
+  }, [importData]);
+
+  const handleLogoPress = useCallback(() => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Export Data', 'Import Data'],
+          cancelButtonIndex: 0,
+          destructiveButtonIndex: -1,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            exportData();
+          } else if (buttonIndex === 2) {
+            setIsImportModalOpen(true);
+          }
+        }
+      );
+    } else {
+      // For Android, use Alert with buttons
+      Alert.alert(
+        'Data Management',
+        'Choose an option',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Export Data', onPress: exportData },
+          { text: 'Import Data', onPress: () => setIsImportModalOpen(true) },
+        ]
+      );
+    }
+  }, [exportData]);
 
   const confirmDelete = useCallback((id: string) => {
     Alert.alert('Delete item', 'Are you sure you want to delete this item?', [
@@ -876,22 +1008,47 @@ function MainApp() {
   const renderItem = useCallback(({ item }: { item: WishlistItem }) => {
     const displayItem = getCurrentDisplayItem(item);
     const hasOptions = item.options && item.options.length > 0;
+    const trendingStatus = getTrendingStatus(item);
+    const weeklyPoints = getWeeklyPoints(item);
+    
+    // Determine card styling based on trending status
+    const getCardStyle = () => {
+      const baseStyle = {
+        backgroundColor: theme.card,
+        borderColor: theme.border,
+        opacity: item.isPurchased ? 0.9 : 1,
+        shadowColor: theme.shadow,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 3,
+      };
+
+      if (trendingStatus === 'hot') {
+        return {
+          ...baseStyle,
+          borderColor: '#FF6B35', // Orange-red for hot items
+          borderWidth: 2,
+          backgroundColor: isDark ? '#2A1A0F' : '#FFF5F0', // Subtle warm background
+        };
+      } else if (trendingStatus === 'trending') {
+        return {
+          ...baseStyle,
+          borderColor: '#4A7C59', // Green border for trending
+          borderWidth: 2,
+          backgroundColor: isDark ? '#0F1A0F' : '#F0F9F0', // Subtle green background
+        };
+      }
+      
+      return baseStyle;
+    };
     
     return (
       <Pressable
         onPress={() => openItemDetail(item)}
         style={[
           styles.card,
-          {
-            backgroundColor: theme.card,
-            borderColor: theme.border,
-            opacity: item.isPurchased ? 0.9 : 1,
-            shadowColor: theme.shadow,
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.1,
-            shadowRadius: 8,
-            elevation: 3,
-          },
+          getCardStyle(),
         ]}
       > 
         {item.isPurchased ? (
@@ -910,6 +1067,16 @@ function MainApp() {
         {hasOptions && (
           <View style={styles.optionsBadge}>
             <Text style={styles.optionsBadgeText}>{item.options!.length} options</Text>
+          </View>
+        )}
+        {trendingStatus === 'hot' && !item.isPurchased && (
+          <View style={[styles.trendingBadge, { right: 12, top: 12 }]}>
+            <Text style={styles.trendingBadgeText}>🔥 Hot</Text>
+          </View>
+        )}
+        {trendingStatus === 'trending' && !item.isPurchased && (
+          <View style={[styles.trendingBadge, { right: 12, top: 12, backgroundColor: theme.green }]}>
+            <Text style={styles.trendingBadgeText}>📈 Trending</Text>
           </View>
         )}
         <View style={styles.row}>
@@ -939,6 +1106,16 @@ function MainApp() {
               <Text style={{ color: theme.green, marginTop: 2 }}>🛒 Purchased {item.datePurchased ? new Date(item.datePurchased).toLocaleDateString() : ''}</Text>
             ) : null}
             <Text style={{ color: theme.subtext, marginTop: 2 }}>📅 {new Date(item.dateAdded).toLocaleDateString()}</Text>
+            {weeklyPoints > 0 && (
+              <Text style={{ 
+                color: trendingStatus === 'hot' ? '#FF6B35' : trendingStatus === 'trending' ? theme.green : theme.subtext, 
+                marginTop: 2, 
+                fontSize: 12,
+                fontWeight: '600'
+              }}>
+                {weeklyPoints} pts this week
+              </Text>
+            )}
             <Text style={{ color: theme.subtext, marginTop: 2, textAlign: 'right' }}>
               {formatPrice(displayItem.price)}
             </Text>
@@ -1007,7 +1184,7 @@ function MainApp() {
         </View>
       </Pressable>
     );
-  }, [addPoint, removePoint, confirmDelete, togglePurchased, theme, remainingPoints, pointAnim, openItemDetail, getCurrentDisplayItem]);
+  }, [addPoint, removePoint, confirmDelete, togglePurchased, theme, remainingPoints, pointAnim, openItemDetail, getCurrentDisplayItem, isDark]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -1020,7 +1197,9 @@ function MainApp() {
 
       <View style={[styles.header, { backgroundColor: GREEN }]}>
         <View style={styles.headerTitleContainer}>
-          <Text style={[styles.headerTitle, { color: isDark ? 'white' : 'white' }]}>Hangfire 🔥</Text>
+          <Pressable onPress={handleLogoPress} style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1 }]}>
+            <Text style={[styles.headerTitle, { color: isDark ? 'white' : 'white' }]}>Hangfire 🔥</Text>
+          </Pressable>
         </View>
         <View style={styles.headerActions}> 
           <View style={[styles.pointsDisplay, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)' }]}>
@@ -1260,6 +1439,13 @@ function MainApp() {
                 {/* Points section */}
                 <View style={styles.detailPointsSection}>
                   <Text style={[styles.detailPointsLabel, { color: theme.text }]}>Current Points</Text>
+                  {getWeeklyPoints(selectedItem) > 0 && (
+                    <Text style={[styles.detailWeeklyPoints, { 
+                      color: getTrendingStatus(selectedItem) === 'hot' ? '#FF6B35' : getTrendingStatus(selectedItem) === 'trending' ? theme.green : theme.subtext 
+                    }]}>
+                      {getWeeklyPoints(selectedItem)} points this week
+                    </Text>
+                  )}
                   <View style={styles.detailPointsRow}>
                     <Pressable
                       onPress={() => removePoint(selectedItem.id)}
@@ -1531,6 +1717,77 @@ function MainApp() {
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
+
+      {/* Import Data Modal */}
+      <Modal 
+        visible={isImportModalOpen} 
+        animationType="slide" 
+        onRequestClose={() => setIsImportModalOpen(false)}
+        presentationStyle="fullScreen"
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+            {/* Header with back button */}
+            <View style={[styles.detailHeader, { borderBottomColor: theme.border }]}>
+              <Pressable onPress={() => setIsImportModalOpen(false)} style={styles.backButton}>
+                <Text style={[styles.backButtonText, { color: theme.text }]}>← Back</Text>
+              </Pressable>
+              <Text style={[styles.detailHeaderTitle, { color: theme.text }]}>Import Data</Text>
+              <View style={{ width: 60 }} />
+            </View>
+            
+            <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
+              <Text style={[styles.modalTitle, { color: theme.text }]}>Import Wishlist Data</Text>
+              
+              <Text style={[styles.inputLabel, { color: theme.text }]}>Paste JSON Data</Text>
+              <TextInput
+                value={importData}
+                onChangeText={setImportData}
+                placeholder="Paste exported JSON data here..."
+                placeholderTextColor={theme.subtext}
+                style={[styles.input, { color: theme.text, borderColor: theme.border, height: 200, textAlignVertical: 'top' }]}
+                multiline
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <Text style={[styles.inputLabel, { color: theme.text, marginTop: 16 }]}>Instructions</Text>
+              <Text style={[styles.importInstructions, { color: theme.subtext }]}>
+                1. Export your data first by tapping the logo and selecting "Export Data"{'\n'}
+                2. Copy the JSON data from your clipboard{'\n'}
+                3. Paste it in the text field above{'\n'}
+                4. Tap "Import Data" to restore your wishlist
+              </Text>
+
+              <View style={{ height: 16 }} />
+
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Pressable onPress={() => setIsImportModalOpen(false)} style={({ pressed }) => [styles.cancelBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}>
+                  <Text style={{ color: theme.text }}>Cancel</Text>
+                </Pressable>
+                <Pressable 
+                  onPress={() => {
+                    Alert.alert(
+                      'Confirm Import',
+                      'This will replace all current items. Continue?',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Import', style: 'destructive', onPress: handleImportData },
+                      ]
+                    );
+                  }}
+                  disabled={!importData.trim()}
+                  style={({ pressed }) => [styles.saveBtn, { backgroundColor: GREEN, opacity: pressed ? 0.8 : (!importData.trim() ? 0.5 : 1) }]}
+                >
+                  <Text style={{ color: 'white', fontWeight: '700' }}>
+                    Import Data
+                  </Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1657,6 +1914,21 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   optionsBadgeText: {
+    color: 'white',
+    fontWeight: '700',
+    fontSize: 11,
+  },
+  trendingBadge: {
+    position: 'absolute',
+    right: 12,
+    top: 12,
+    backgroundColor: '#FF6B35',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    zIndex: 1,
+  },
+  trendingBadgeText: {
     color: 'white',
     fontWeight: '700',
     fontSize: 11,
@@ -1861,6 +2133,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 12,
+  },
+  detailWeeklyPoints: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
   },
   detailPointsRow: {
     flexDirection: 'row',
@@ -2103,6 +2380,11 @@ const styles = StyleSheet.create({
   scrapedPreviewText: {
     fontSize: 14,
     lineHeight: 18,
+  },
+  importInstructions: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
   },
 });
 

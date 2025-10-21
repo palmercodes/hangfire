@@ -1,31 +1,19 @@
 {
   "expo": {
-    "name": "wishlist-expo",
-    "slug": "wishlist-expo",
-    "scheme": "wishlist",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": null,
+    "name": "Hangfire",
+    "slug": "hangfire",
+    "icon": "./assets/Frame2.png",
     "splash": {
-      "image": null,
+      "image": "./assets/Frame2.png",
       "resizeMode": "contain",
-      "backgroundColor": "#4A7C59"
+      "backgroundColor": "#43AA8B"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "backgroundColor": "#43AA8B",
     "ios": {
-      "supportsTablet": true
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": null,
-        "backgroundColor": "#FFFFFF"
-      }
-    },
-    "web": {
-      "bundler": "metro",
-      "favicon": null
+      "icon": "./assets/Frame2.png",
+      "backgroundColor": "#43AA8B",
+      "supportsTablet": true,
+      "bundleIdentifier": "com.palmersimpson.hangfire"
     }
   }
 }

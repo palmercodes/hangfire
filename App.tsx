@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { SafeAreaView, View, Text, FlatList, Pressable, Image, StyleSheet, useColorScheme, Alert, Animated, Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Switch, Linking } from 'react-native';
+import { SafeAreaView, View, Text, FlatList, Pressable, Image, StyleSheet, useColorScheme, Alert, Animated, Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, Switch, Linking, AppState } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
@@ -257,6 +257,15 @@ function MainApp() {
     };
   }, [isDark]);
 
+  // Check if we need to reset points based on date
+  const checkAndResetDailyPoints = useCallback(async () => {
+    const today = getTodayKey();
+    if (lastResetDate !== today) {
+      setRemainingPoints(MAX_DAILY_POINTS);
+      setLastResetDate(today);
+    }
+  }, [lastResetDate]);
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -285,6 +294,19 @@ function MainApp() {
     };
     load();
   }, []);
+
+  // Listen for app state changes to reset points when app becomes active on a new day
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active') {
+        checkAndResetDailyPoints();
+      }
+    });
+
+    return () => {
+      subscription?.remove();
+    };
+  }, [checkAndResetDailyPoints]);
 
   // Handle deep links from browser sharing
   useEffect(() => {

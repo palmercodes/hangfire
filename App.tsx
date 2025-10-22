@@ -206,6 +206,8 @@ function MainApp() {
   const [remainingPoints, setRemainingPoints] = useState<number>(MAX_DAILY_POINTS);
   const [lastResetDate, setLastResetDate] = useState<string>(getTodayKey());
   const pointAnim = useRef(new Animated.Value(1)).current;
+  const upvoteAnims = useRef<{ [key: string]: Animated.Value }>({}).current;
+  const ptsLeftAnim = useRef(new Animated.Value(1)).current;
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [formName, setFormName] = useState('');
   const [formPrice, setFormPrice] = useState('');
@@ -344,6 +346,40 @@ function MainApp() {
     ]).start();
   }, [pointAnim]);
 
+  const animatePtsLeftEmpty = useCallback(() => {
+    ptsLeftAnim.setValue(1);
+    Animated.sequence([
+      Animated.timing(ptsLeftAnim, { toValue: 1.15, duration: 100, useNativeDriver: true }),
+      Animated.spring(ptsLeftAnim, { toValue: 1, useNativeDriver: true, friction: 3, tension: 150 }),
+      Animated.timing(ptsLeftAnim, { toValue: 1.08, duration: 80, useNativeDriver: true }),
+      Animated.spring(ptsLeftAnim, { toValue: 1, useNativeDriver: true, friction: 3 }),
+    ]).start();
+  }, [ptsLeftAnim]);
+
+  const animateUpvote = useCallback((id: string) => {
+    // Initialize animation value for this item if it doesn't exist
+    if (!upvoteAnims[id]) {
+      upvoteAnims[id] = new Animated.Value(1);
+    }
+    
+    const anim = upvoteAnims[id];
+    anim.setValue(1);
+    Animated.sequence([
+      Animated.spring(anim, { 
+        toValue: 1.4, 
+        friction: 3,
+        tension: 200,
+        useNativeDriver: true 
+      }),
+      Animated.spring(anim, { 
+        toValue: 1, 
+        friction: 3,
+        tension: 100,
+        useNativeDriver: true 
+      }),
+    ]).start();
+  }, [upvoteAnims]);
+
   const addPoint = useCallback((id: string) => {
     // Only freeze sorting if we're sorting by points
     if (sortMode === 'points') {
@@ -357,11 +393,27 @@ function MainApp() {
         return prev;
       }
       const next = prev.map(it => (it.id === id ? { ...it, points: it.points + 1 } : it));
+      
+      // Update selectedItem if it's the same item
+      if (selectedItem?.id === id) {
+        const updatedItem = next.find(it => it.id === id);
+        if (updatedItem) {
+          setSelectedItem(updatedItem);
+        }
+      }
+      
       return next;
     });
-    setRemainingPoints(p => (p > 0 ? p - 1 : p));
+    const newRemainingPoints = remainingPoints > 0 ? remainingPoints - 1 : remainingPoints;
+    setRemainingPoints(newRemainingPoints);
     animatePoints();
+    animateUpvote(id);
     if (remainingPoints > 0) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    // Animate the "pts left" label when hitting 0
+    if (newRemainingPoints === 0) {
+      animatePtsLeftEmpty();
+    }
 
     // Unfreeze sorting after a delay
     if (sortMode === 'points') {
@@ -369,7 +421,7 @@ function MainApp() {
         setIsSortingFrozen(false);
       }, 1000); // 1 second delay
     }
-  }, [remainingPoints, animatePoints, sortMode, items]);
+  }, [remainingPoints, animatePoints, animateUpvote, animatePtsLeftEmpty, sortMode, items, selectedItem]);
 
   const removePoint = useCallback((id: string) => {
     // Only freeze sorting if we're sorting by points
@@ -385,6 +437,15 @@ function MainApp() {
         return prev;
       }
       const next = prev.map(it => (it.id === id ? { ...it, points: Math.max(0, it.points - 1) } : it));
+      
+      // Update selectedItem if it's the same item
+      if (selectedItem?.id === id) {
+        const updatedItem = next.find(it => it.id === id);
+        if (updatedItem) {
+          setSelectedItem(updatedItem);
+        }
+      }
+      
       return next;
     });
     setRemainingPoints(p => (p < MAX_DAILY_POINTS ? p + 1 : p));
@@ -397,7 +458,7 @@ function MainApp() {
         setIsSortingFrozen(false);
       }, 1000); // 1 second delay
     }
-  }, [animatePoints, sortMode, items]);
+  }, [animatePoints, sortMode, items, selectedItem]);
 
   const resetDailyPoints = useCallback(() => {
     setRemainingPoints(MAX_DAILY_POINTS);
@@ -873,9 +934,17 @@ function MainApp() {
     );
   }, [theme]);
 
+  const getUpvoteAnim = useCallback((id: string) => {
+    if (!upvoteAnims[id]) {
+      upvoteAnims[id] = new Animated.Value(1);
+    }
+    return upvoteAnims[id];
+  }, [upvoteAnims]);
+
   const renderItem = useCallback(({ item }: { item: WishlistItem }) => {
     const displayItem = getCurrentDisplayItem(item);
     const hasOptions = item.options && item.options.length > 0;
+    const upvoteAnim = getUpvoteAnim(item.id);
     
     return (
       <Pressable
@@ -949,32 +1018,6 @@ function MainApp() {
           <Pressable
             onPress={(e) => {
               e.stopPropagation();
-              removePoint(item.id);
-            }}
-            style={({ pressed }) => [
-              styles.circleBtn, 
-              { 
-                borderColor: theme.green, 
-                opacity: pressed ? 0.8 : 1,
-                transform: [{ scale: pressed ? 0.95 : 1 }],
-                shadowColor: theme.shadow,
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.15,
-                shadowRadius: 4,
-                elevation: 2,
-              }
-            ]}
-          >
-            <Text style={[styles.btnText, { color: theme.green }]}>−</Text>
-          </Pressable>
-
-          <Animated.Text style={[styles.pointsText, { color: theme.text, transform: [{ scale: pointAnim }] }]}>
-            {item.points}
-          </Animated.Text>
-
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
               addPoint(item.id);
             }}
             disabled={remainingPoints <= 0}
@@ -984,7 +1027,6 @@ function MainApp() {
                 borderColor: theme.green, 
                 opacity: pressed ? 0.8 : 1, 
                 backgroundColor: remainingPoints > 0 ? 'transparent' : theme.border,
-                transform: [{ scale: pressed ? 0.95 : 1 }],
                 shadowColor: theme.shadow,
                 shadowOffset: { width: 0, height: 2 },
                 shadowOpacity: 0.15,
@@ -993,7 +1035,43 @@ function MainApp() {
               },
             ]}
           >
-            <Text style={[styles.btnText, { color: theme.green }]}>+</Text>
+            <Animated.Text style={[
+              styles.btnText, 
+              { 
+                color: remainingPoints > 0 ? theme.green : theme.subtext,
+                transform: [{ scale: upvoteAnim }]
+              }
+            ]}>
+              ↑
+            </Animated.Text>
+          </Pressable>
+
+          <Animated.Text style={[styles.pointsText, { color: theme.text, transform: [{ scale: pointAnim }] }]}>
+            {item.points}
+          </Animated.Text>
+
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation();
+              removePoint(item.id);
+            }}
+            disabled={item.points <= 0 || remainingPoints >= MAX_DAILY_POINTS}
+            style={({ pressed }) => [
+              styles.circleBtn, 
+              { 
+                borderColor: theme.green, 
+                opacity: pressed ? 0.8 : 1,
+                backgroundColor: (item.points > 0 && remainingPoints < MAX_DAILY_POINTS) ? 'transparent' : theme.border,
+                transform: [{ scale: pressed ? 0.95 : 1 }],
+                shadowColor: theme.shadow,
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.15,
+                shadowRadius: 4,
+                elevation: 2,
+              }
+            ]}
+          >
+            <Text style={[styles.btnText, { color: (item.points > 0 && remainingPoints < MAX_DAILY_POINTS) ? theme.green : theme.subtext }]}>↓</Text>
           </Pressable>
         </View>
 
@@ -1007,7 +1085,7 @@ function MainApp() {
         </View>
       </Pressable>
     );
-  }, [addPoint, removePoint, confirmDelete, togglePurchased, theme, remainingPoints, pointAnim, openItemDetail, getCurrentDisplayItem]);
+  }, [addPoint, removePoint, confirmDelete, togglePurchased, theme, remainingPoints, pointAnim, openItemDetail, getCurrentDisplayItem, getUpvoteAnim]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
@@ -1023,12 +1101,18 @@ function MainApp() {
           <Text style={[styles.headerTitle, { color: isDark ? 'white' : 'white' }]}>Hangfire 🔥</Text>
         </View>
         <View style={styles.headerActions}> 
-          <View style={[styles.pointsDisplay, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)' }]}>
+          <Animated.View style={[
+            styles.pointsDisplay, 
+            { 
+              backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)',
+              transform: [{ scale: ptsLeftAnim }]
+            }
+          ]}>
             <Text style={styles.pointsEmoji}>💎</Text>
             <Text style={{ color: isDark ? 'white' : 'white', fontSize: 13, fontWeight: '500' }}>
               {remainingPoints} pt{remainingPoints !== 1 ? 's' : ''} left
             </Text>
-          </View>
+          </Animated.View>
           <Pressable style={[styles.addBtn, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)' }]} onPress={openAdd}>
             <Text style={[styles.addBtnText, { color: isDark ? 'white' : 'white' }]}>＋</Text>
           </Pressable>
@@ -1262,24 +1346,6 @@ function MainApp() {
                   <Text style={[styles.detailPointsLabel, { color: theme.text }]}>Current Points</Text>
                   <View style={styles.detailPointsRow}>
                     <Pressable
-                      onPress={() => removePoint(selectedItem.id)}
-                      style={({ pressed }) => [
-                        styles.detailCircleBtn,
-                        {
-                          borderColor: theme.green,
-                          opacity: pressed ? 0.8 : 1,
-                          transform: [{ scale: pressed ? 0.95 : 1 }],
-                        }
-                      ]}
-                    >
-                      <Text style={[styles.detailBtnText, { color: theme.green }]}>−</Text>
-                    </Pressable>
-
-                    <Animated.Text style={[styles.detailPointsText, { color: theme.text, transform: [{ scale: pointAnim }] }]}>
-                      {selectedItem.points}
-                    </Animated.Text>
-
-                    <Pressable
                       onPress={() => addPoint(selectedItem.id)}
                       disabled={remainingPoints <= 0}
                       style={({ pressed }) => [
@@ -1288,11 +1354,37 @@ function MainApp() {
                           borderColor: theme.green,
                           opacity: pressed ? 0.8 : 1,
                           backgroundColor: remainingPoints > 0 ? 'transparent' : theme.border,
-                          transform: [{ scale: pressed ? 0.95 : 1 }],
                         }
                       ]}
                     >
-                      <Text style={[styles.detailBtnText, { color: theme.green }]}>+</Text>
+                      <Animated.Text style={[
+                        styles.detailBtnText,
+                        {
+                          color: remainingPoints > 0 ? theme.green : theme.subtext,
+                          transform: [{ scale: getUpvoteAnim(selectedItem.id) }]
+                        }
+                      ]}>
+                        ↑
+                      </Animated.Text>
+                    </Pressable>
+
+                    <Animated.Text style={[styles.detailPointsText, { color: theme.text, transform: [{ scale: pointAnim }] }]}>
+                      {selectedItem.points}
+                    </Animated.Text>
+
+                    <Pressable
+                      onPress={() => removePoint(selectedItem.id)}
+                      disabled={selectedItem.points <= 0 || remainingPoints >= MAX_DAILY_POINTS}
+                      style={({ pressed }) => [
+                        styles.detailCircleBtn,
+                        {
+                          borderColor: theme.green,
+                          opacity: pressed ? 0.8 : 1,
+                          backgroundColor: (selectedItem.points > 0 && remainingPoints < MAX_DAILY_POINTS) ? 'transparent' : theme.border,
+                        }
+                      ]}
+                    >
+                      <Text style={[styles.detailBtnText, { color: (selectedItem.points > 0 && remainingPoints < MAX_DAILY_POINTS) ? theme.green : theme.subtext }]}>↓</Text>
                     </Pressable>
                   </View>
                 </View>

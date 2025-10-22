@@ -28,6 +28,7 @@ type WishlistItem = {
   datePurchased?: string; // ISO
   options?: ItemOption[];
   selectedOptionId?: string; // ID of currently selected option
+  pointHistory?: { date: string; points: number }[]; // Track daily point changes
 };
 
 type PersistedState = {
@@ -36,7 +37,7 @@ type PersistedState = {
   lastResetDate: string; // yyyy-mm-dd
 };
 
-const MAX_DAILY_POINTS = 3;
+const MAX_DAILY_POINTS = 15; // Temporarily increased for testing trending feature
 const STORAGE_KEY = 'wishlist_app_state_v2';
 const GREEN = '#4A7C59';
 
@@ -50,6 +51,33 @@ function formatPrice(price: number): string {
 function getTodayKey(): string {
   const now = new Date();
   return now.toISOString().slice(0, 10);
+}
+
+function getWeeklyPoints(item: WishlistItem): number {
+  if (!item.pointHistory || item.pointHistory.length === 0) {
+    return 0;
+  }
+  
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const sevenDaysAgoKey = sevenDaysAgo.toISOString().slice(0, 10);
+  
+  // Calculate points added in the last 7 days
+  let weeklyPoints = 0;
+  for (const entry of item.pointHistory) {
+    if (entry.date >= sevenDaysAgoKey) {
+      weeklyPoints += entry.points;
+    }
+  }
+  
+  return weeklyPoints;
+}
+
+function getTrendingStatus(item: WishlistItem): 'none' | 'trending' | 'hot' {
+  const weeklyPoints = getWeeklyPoints(item);
+  if (weeklyPoints >= 10) return 'hot';
+  if (weeklyPoints >= 5) return 'trending';
+  return 'none';
 }
 
 async function scrapeImageFromUrl(url: string): Promise<string | null> {
@@ -231,6 +259,8 @@ function MainApp() {
   const [isOptionScraping, setIsOptionScraping] = useState(false);
   const [isSortingFrozen, setIsSortingFrozen] = useState(false);
   const [frozenItems, setFrozenItems] = useState<WishlistItem[]>([]);
+  const statusBarOpacity = useRef(new Animated.Value(1)).current;
+  const [prevStatusMessage, setPrevStatusMessage] = useState('');
 
   const sortedItems = useMemo(() => {
     // Use frozen items if sorting is temporarily frozen
@@ -254,8 +284,46 @@ function MainApp() {
       headerBg: GREEN,
       headerText: '#FFFFFF',
       shadow: isDark ? '#000000' : '#00000020',
+      statusBarBg: '#6B9A7A',
     };
   }, [isDark]);
+
+  // Calculate status bar message
+  const statusMessage = useMemo(() => {
+    if (items.length === 0) {
+      return "I'm sure there's something out there that you want to buy 😏";
+    }
+    
+    if (remainingPoints === 0) {
+      return "You've assigned all of your points for today! Congrats!";
+    }
+    
+    if (remainingPoints === 1) {
+      return "You have 1 point left to assign today!";
+    }
+    
+    return `You have ${remainingPoints} points left to assign today!`;
+  }, [items.length, remainingPoints]);
+
+  // Fade animation when status message changes
+  useEffect(() => {
+    if (prevStatusMessage !== '' && prevStatusMessage !== statusMessage) {
+      // Fade out then fade in
+      Animated.sequence([
+        Animated.timing(statusBarOpacity, {
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.timing(statusBarOpacity, {
+          toValue: 1,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+    setPrevStatusMessage(statusMessage);
+  }, [statusMessage, prevStatusMessage, statusBarOpacity]);
 
   // Check if we need to reset points based on date
   const checkAndResetDailyPoints = useCallback(async () => {
@@ -414,7 +482,20 @@ function MainApp() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         return prev;
       }
-      const next = prev.map(it => (it.id === id ? { ...it, points: it.points + 1 } : it));
+      const today = getTodayKey();
+      const next = prev.map(it => {
+        if (it.id === id) {
+          const newPointHistory = [...(it.pointHistory || [])];
+          const todayEntry = newPointHistory.find(entry => entry.date === today);
+          if (todayEntry) {
+            todayEntry.points += 1;
+          } else {
+            newPointHistory.push({ date: today, points: 1 });
+          }
+          return { ...it, points: it.points + 1, pointHistory: newPointHistory };
+        }
+        return it;
+      });
       
       // Update selectedItem if it's the same item
       if (selectedItem?.id === id) {
@@ -458,7 +539,20 @@ function MainApp() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         return prev;
       }
-      const next = prev.map(it => (it.id === id ? { ...it, points: Math.max(0, it.points - 1) } : it));
+      const today = getTodayKey();
+      const next = prev.map(it => {
+        if (it.id === id) {
+          const newPointHistory = [...(it.pointHistory || [])];
+          const todayEntry = newPointHistory.find(entry => entry.date === today);
+          if (todayEntry) {
+            todayEntry.points = Math.max(0, todayEntry.points - 1);
+          } else {
+            newPointHistory.push({ date: today, points: -1 });
+          }
+          return { ...it, points: Math.max(0, it.points - 1), pointHistory: newPointHistory };
+        }
+        return it;
+      });
       
       // Update selectedItem if it's the same item
       if (selectedItem?.id === id) {
@@ -689,21 +783,6 @@ function MainApp() {
     setIsAddOpen(true);
   }, []);
 
-  const handlePaste = useCallback(async () => {
-    try {
-      const clipboardText = await Clipboard.getStringAsync();
-      if (clipboardText && clipboardText.trim()) {
-        // Trigger the URL change handler to start scraping
-        await handleUrlChange(clipboardText.trim());
-      } else {
-        Alert.alert('Clipboard Empty', 'No text found in clipboard to paste.');
-      }
-    } catch (error) {
-      console.log('Paste failed:', error);
-      Alert.alert('Paste Failed', 'Could not access clipboard. Please paste manually.');
-    }
-  }, [handleUrlChange]);
-
   const handleUrlChange = useCallback(async (url: string) => {
     setFormLink(url);
     
@@ -733,6 +812,21 @@ function MainApp() {
       setScrapedData(null);
     }
   }, []);
+
+  const handlePaste = useCallback(async () => {
+    try {
+      const clipboardText = await Clipboard.getStringAsync();
+      if (clipboardText && clipboardText.trim()) {
+        // Trigger the URL change handler to start scraping
+        await handleUrlChange(clipboardText.trim());
+      } else {
+        Alert.alert('Clipboard Empty', 'No text found in clipboard to paste.');
+      }
+    } catch (error) {
+      console.log('Paste failed:', error);
+      Alert.alert('Paste Failed', 'Could not access clipboard. Please paste manually.');
+    }
+  }, [handleUrlChange]);
 
   const openAddOption = useCallback(() => {
     setOptionName('');
@@ -967,6 +1061,8 @@ function MainApp() {
     const displayItem = getCurrentDisplayItem(item);
     const hasOptions = item.options && item.options.length > 0;
     const upvoteAnim = getUpvoteAnim(item.id);
+    const trendingStatus = getTrendingStatus(item);
+    const weeklyPoints = getWeeklyPoints(item);
     
     return (
       <Pressable
@@ -1003,13 +1099,23 @@ function MainApp() {
             <Text style={styles.optionsBadgeText}>{item.options!.length} options</Text>
           </View>
         )}
+        {trendingStatus === 'hot' && !item.isPurchased && (
+          <View style={[styles.trendingBadge, { right: 12, top: 12 }]}>
+            <Text style={styles.trendingBadgeText}>🔥 Hot</Text>
+          </View>
+        )}
+        {trendingStatus === 'trending' && !item.isPurchased && (
+          <View style={[styles.trendingBadge, { right: 12, top: 12, backgroundColor: theme.green }]}>
+            <Text style={styles.trendingBadgeText}>📈 Trending</Text>
+          </View>
+        )}
         <View style={styles.row}>
           <Image
             source={{ uri: displayItem.imageUrl || 'https://via.placeholder.com/96' }}
             style={[styles.image, item.isPurchased ? { opacity: 0.6 } : null]}
             resizeMode="contain"
           />
-          <View style={{ flex: 1, marginLeft: 12 }}>
+          <View style={{ flex: 1, marginLeft: 12, paddingRight: (item.isPurchased || hasOptions || trendingStatus !== 'none') ? 100 : 0 }}>
             <View style={[styles.row, { alignItems: 'center' }]}> 
               <Text
                 style={[
@@ -1026,10 +1132,17 @@ function MainApp() {
                 <Text style={{ marginLeft: 8, color: theme.green }}>✓</Text>
               ) : null}
             </View>
-            {item.isPurchased ? (
-              <Text style={{ color: theme.green, marginTop: 2 }}>🛒 Purchased {item.datePurchased ? new Date(item.datePurchased).toLocaleDateString() : ''}</Text>
-            ) : null}
             <Text style={{ color: theme.subtext, marginTop: 2 }}>📅 {new Date(item.dateAdded).toLocaleDateString()}</Text>
+            {weeklyPoints > 0 && (
+              <Text style={{ 
+                color: trendingStatus === 'hot' ? '#FF6B35' : trendingStatus === 'trending' ? theme.green : theme.subtext, 
+                marginTop: 2, 
+                fontSize: 12,
+                fontWeight: '600'
+              }}>
+                {weeklyPoints} pts this week
+              </Text>
+            )}
             <Text style={{ color: theme.subtext, marginTop: 2, textAlign: 'right' }}>
               {formatPrice(displayItem.price)}
             </Text>
@@ -1140,6 +1253,17 @@ function MainApp() {
           </Pressable>
         </View>
       </View>
+
+      {/* Status Bar */}
+      <Animated.View style={[
+        styles.statusBar, 
+        { 
+          backgroundColor: theme.statusBarBg,
+          opacity: statusBarOpacity,
+        }
+      ]}>
+        <Text style={styles.statusBarText}>{statusMessage}</Text>
+      </Animated.View>
 
       <FlatList
         contentContainerStyle={{ padding: 16, paddingBottom: 120, flexGrow: 1 }}
@@ -1366,6 +1490,13 @@ function MainApp() {
                 {/* Points section */}
                 <View style={styles.detailPointsSection}>
                   <Text style={[styles.detailPointsLabel, { color: theme.text }]}>Current Points</Text>
+                  {getWeeklyPoints(selectedItem) > 0 && (
+                    <Text style={[styles.detailWeeklyPoints, { 
+                      color: getTrendingStatus(selectedItem) === 'hot' ? '#FF6B35' : getTrendingStatus(selectedItem) === 'trending' ? theme.green : theme.subtext 
+                    }]}>
+                      {getWeeklyPoints(selectedItem)} points this week
+                    </Text>
+                  )}
                   <View style={styles.detailPointsRow}>
                     <Pressable
                       onPress={() => addPoint(selectedItem.id)}
@@ -1674,6 +1805,19 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800',
   },
+  statusBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  statusBarText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   fireEmoji: {
     fontSize: 20,
     marginLeft: 6,
@@ -1721,12 +1865,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginRight: 4,
   },
-  pointsText: {
-    color: 'red',
-    fontSize: 6,
-    fontWeight: '300',
-    lineHeight: 8,
-  },
   sortButton: {
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1771,6 +1909,21 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   optionsBadgeText: {
+    color: 'white',
+    fontWeight: '700',
+    fontSize: 11,
+  },
+  trendingBadge: {
+    position: 'absolute',
+    right: 12,
+    top: 12,
+    backgroundColor: '#FF6B35',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    zIndex: 1,
+  },
+  trendingBadgeText: {
     color: 'white',
     fontWeight: '700',
     fontSize: 11,
@@ -1975,6 +2128,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 12,
+  },
+  detailWeeklyPoints: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 12,
+    textAlign: 'center',
   },
   detailPointsRow: {
     flexDirection: 'row',

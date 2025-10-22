@@ -1113,7 +1113,7 @@ function MainApp() {
           <Image
             source={{ uri: displayItem.imageUrl || 'https://via.placeholder.com/96' }}
             style={[styles.image, item.isPurchased ? { opacity: 0.6 } : null]}
-            resizeMode="contain"
+            resizeMode="cover"
           />
           <View style={{ flex: 1, marginLeft: 12, paddingRight: (item.isPurchased || hasOptions || trendingStatus !== 'none') ? 100 : 0 }}>
             <View style={[styles.row, { alignItems: 'center' }]}> 
@@ -1936,8 +1936,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   image: {
-    width: 72,
-    height: 72,
+    width: 96,
+    height: 96,
     borderRadius: 12,
     backgroundColor: '#FFFFFF',
   },

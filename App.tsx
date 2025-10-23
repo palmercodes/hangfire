@@ -261,6 +261,7 @@ function MainApp() {
   const [frozenItems, setFrozenItems] = useState<WishlistItem[]>([]);
   const statusBarOpacity = useRef(new Animated.Value(1)).current;
   const [prevStatusMessage, setPrevStatusMessage] = useState('');
+  const [hasUpvotesToday, setHasUpvotesToday] = useState(false);
 
   const sortedItems = useMemo(() => {
     // Use frozen items if sorting is temporarily frozen
@@ -344,20 +345,29 @@ function MainApp() {
           setItems(parsed.items ?? []);
           if (parsed.lastResetDate === today) {
             setRemainingPoints(parsed.remainingPoints ?? MAX_DAILY_POINTS);
+            // Check if there are upvotes from today
+            const hasUpvotes = (parsed.items ?? []).some(item => {
+              const todayEntry = item.pointHistory?.find(entry => entry.date === today);
+              return todayEntry && todayEntry.points > 0;
+            });
+            setHasUpvotesToday(hasUpvotes);
           } else {
             setRemainingPoints(MAX_DAILY_POINTS);
+            setHasUpvotesToday(false);
           }
           setLastResetDate(today);
         } else {
           setItems(seedItems());
           setRemainingPoints(MAX_DAILY_POINTS);
           setLastResetDate(getTodayKey());
+          setHasUpvotesToday(false);
         }
       } catch (e) {
         // best-effort: start fresh
         setItems(seedItems());
         setRemainingPoints(MAX_DAILY_POINTS);
         setLastResetDate(getTodayKey());
+        setHasUpvotesToday(false);
       }
     };
     load();
@@ -509,6 +519,7 @@ function MainApp() {
     });
     const newRemainingPoints = remainingPoints > 0 ? remainingPoints - 1 : remainingPoints;
     setRemainingPoints(newRemainingPoints);
+    setHasUpvotesToday(true); // Mark that upvotes were made today
     animatePoints();
     animateUpvote(id);
     if (remainingPoints > 0) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -580,6 +591,60 @@ function MainApp() {
     setRemainingPoints(MAX_DAILY_POINTS);
     setLastResetDate(getTodayKey());
   }, []);
+
+  const undoLastUpvote = useCallback(() => {
+    if (remainingPoints >= MAX_DAILY_POINTS) {
+      // No upvotes to undo
+      return;
+    }
+
+    const today = getTodayKey();
+    let foundUpvote = false;
+
+    setItems(prev => {
+      const next = prev.map(item => {
+        if (!foundUpvote && item.points > 0) {
+          const todayEntry = item.pointHistory?.find(entry => entry.date === today);
+          if (todayEntry && todayEntry.points > 0) {
+            foundUpvote = true;
+            const newPointHistory = [...(item.pointHistory || [])];
+            const updatedEntry = newPointHistory.find(entry => entry.date === today);
+            if (updatedEntry) {
+              updatedEntry.points -= 1;
+            }
+            return { ...item, points: item.points - 1, pointHistory: newPointHistory };
+          }
+        }
+        return item;
+      });
+      
+      // Update selectedItem if needed
+      if (foundUpvote && selectedItem) {
+        const updatedItem = next.find(it => it.id === selectedItem.id);
+        if (updatedItem) {
+          setSelectedItem(updatedItem);
+        }
+      }
+      
+      return next;
+    });
+
+    if (foundUpvote) {
+      setRemainingPoints(prev => Math.min(prev + 1, MAX_DAILY_POINTS));
+      
+      // Check if we've undone all upvotes for today
+      const hasRemainingUpvotes = items.some(item => {
+        const todayEntry = item.pointHistory?.find(entry => entry.date === today);
+        return todayEntry && todayEntry.points > 0;
+      });
+      
+      if (!hasRemainingUpvotes) {
+        setHasUpvotesToday(false);
+      }
+      
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, [remainingPoints, selectedItem, items]);
 
   const confirmDelete = useCallback((id: string) => {
     Alert.alert('Delete item', 'Are you sure you want to delete this item?', [
@@ -1099,121 +1164,111 @@ function MainApp() {
             <Text style={styles.optionsBadgeText}>{item.options!.length} options</Text>
           </View>
         )}
-        {trendingStatus === 'hot' && !item.isPurchased && (
-          <View style={[styles.trendingBadge, { right: 12, top: 12 }]}>
-            <Text style={styles.trendingBadgeText}>🔥 Hot</Text>
-          </View>
-        )}
-        {trendingStatus === 'trending' && !item.isPurchased && (
-          <View style={[styles.trendingBadge, { right: 12, top: 12, backgroundColor: theme.green }]}>
-            <Text style={styles.trendingBadgeText}>📈 Trending</Text>
-          </View>
-        )}
         <View style={styles.row}>
           <Image
             source={{ uri: displayItem.imageUrl || 'https://via.placeholder.com/96' }}
             style={[styles.image, item.isPurchased ? { opacity: 0.6 } : null]}
             resizeMode="cover"
           />
-          <View style={{ flex: 1, marginLeft: 12, paddingRight: (item.isPurchased || hasOptions || trendingStatus !== 'none') ? 100 : 0 }}>
-            <View style={[styles.row, { alignItems: 'center' }]}> 
-              <Text
-                style={[
-                  styles.title,
-                  {
-                    color: item.isPurchased ? theme.subtext : theme.text,
-                  },
-                ]}
-                numberOfLines={2}
-              >
-                {displayItem.name}
+          <View style={{ flex: 1, marginLeft: 12, marginRight: 12 }}>
+            {/* Title */}
+            <Text
+              style={[
+                styles.title,
+                {
+                  color: item.isPurchased ? theme.subtext : theme.text,
+                  marginBottom: 4,
+                },
+              ]}
+              numberOfLines={2}
+            >
+              {displayItem.name}
+            </Text>
+            
+            {/* Date and Price Row */}
+            <View style={[styles.row, { alignItems: 'center', marginBottom: 8 }]}>
+              <Text style={[styles.dateText, { color: theme.subtext }]}>
+                📅 {new Date(item.dateAdded).toLocaleDateString()}
               </Text>
-              {item.isPurchased ? (
-                <Text style={{ marginLeft: 8, color: theme.green }}>✓</Text>
-              ) : null}
+              <Text style={{ color: theme.subtext, marginHorizontal: 8 }}>•</Text>
+              <Text style={[styles.priceText, { color: theme.green }]}>
+                {formatPrice(displayItem.price)}
+              </Text>
             </View>
-            <Text style={{ color: theme.subtext, marginTop: 2 }}>📅 {new Date(item.dateAdded).toLocaleDateString()}</Text>
+            
+            {/* Weekly Points */}
             {weeklyPoints > 0 && (
               <Text style={{ 
                 color: trendingStatus === 'hot' ? '#FF6B35' : trendingStatus === 'trending' ? theme.green : theme.subtext, 
-                marginTop: 2, 
                 fontSize: 12,
-                fontWeight: '600'
+                fontWeight: '600',
+                marginBottom: 8,
               }}>
-                {weeklyPoints} pts this week
+                ↑ {weeklyPoints} pts this week
               </Text>
             )}
-            <Text style={{ color: theme.subtext, marginTop: 2, textAlign: 'right' }}>
-              {formatPrice(displayItem.price)}
-            </Text>
+          </View>
+          
+          {/* Voting Controls - Right Side */}
+          <View style={styles.votingControls}>
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                addPoint(item.id);
+              }}
+              disabled={remainingPoints <= 0}
+              style={({ pressed }) => [
+                styles.upvotePill,
+                { 
+                  opacity: pressed ? 0.8 : 1,
+                  backgroundColor: remainingPoints > 0 ? theme.green : theme.border,
+                  transform: [{ scale: pressed ? 1.05 : 1 }],
+                },
+              ]}
+            >
+              <Animated.Text style={[
+                styles.upvoteArrow, 
+                { 
+                  color: remainingPoints > 0 ? 'white' : theme.subtext,
+                  transform: [{ scale: upvoteAnim }]
+                }
+              ]}>
+                ↑
+              </Animated.Text>
+              <Animated.Text style={[
+                styles.upvoteCount,
+                { 
+                  color: remainingPoints > 0 ? 'white' : theme.subtext,
+                  transform: [{ scale: pointAnim }]
+                }
+              ]}>
+                {item.points}
+              </Animated.Text>
+            </Pressable>
           </View>
         </View>
 
-        <View style={[styles.pointsRow]}> 
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
-              addPoint(item.id);
-            }}
-            disabled={remainingPoints <= 0}
-            style={({ pressed }) => [
-              styles.circleBtn,
-              { 
-                borderColor: theme.green, 
-                opacity: pressed ? 0.8 : 1, 
-                backgroundColor: remainingPoints > 0 ? 'transparent' : theme.border,
-                shadowColor: theme.shadow,
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.15,
-                shadowRadius: 4,
-                elevation: 2,
-              },
-            ]}
-          >
-            <Animated.Text style={[
-              styles.btnText, 
-              { 
-                color: remainingPoints > 0 ? theme.green : theme.subtext,
-                transform: [{ scale: upvoteAnim }]
-              }
-            ]}>
-              ↑
-            </Animated.Text>
-          </Pressable>
-
-          <Animated.Text style={[styles.pointsText, { color: theme.text, transform: [{ scale: pointAnim }] }]}>
-            {item.points}
-          </Animated.Text>
-
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
-              removePoint(item.id);
-            }}
-            disabled={item.points <= 0 || remainingPoints >= MAX_DAILY_POINTS}
-            style={({ pressed }) => [
-              styles.circleBtn, 
-              { 
-                borderColor: theme.green, 
-                opacity: pressed ? 0.8 : 1,
-                backgroundColor: (item.points > 0 && remainingPoints < MAX_DAILY_POINTS) ? 'transparent' : theme.border,
-                transform: [{ scale: pressed ? 0.95 : 1 }],
-                shadowColor: theme.shadow,
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.15,
-                shadowRadius: 4,
-                elevation: 2,
-              }
-            ]}
-          >
-            <Text style={[styles.btnText, { color: (item.points > 0 && remainingPoints < MAX_DAILY_POINTS) ? theme.green : theme.subtext }]}>↓</Text>
-          </Pressable>
-        </View>
-
+        {/* Compact Actions Row */}
         <View style={[styles.actionsRow]}> 
-          <Pressable onPress={() => togglePurchased(item.id)} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
-            <Text style={{ color: theme.subtext }}>{item.isPurchased ? `Unmark purchased` : 'Mark purchased'}</Text>
+          <Pressable 
+            onPress={() => togglePurchased(item.id)} 
+            style={({ pressed }) => [
+              styles.purchasedToggle,
+              { 
+                opacity: pressed ? 0.6 : 1,
+                backgroundColor: item.isPurchased ? theme.green : 'transparent',
+                borderColor: theme.green,
+              }
+            ]}
+          >
+            <Text style={[
+              styles.purchasedToggleText, 
+              { color: item.isPurchased ? 'white' : theme.green }
+            ]}>
+              {item.isPurchased ? '✓ Purchased' : '○ Mark purchased'}
+            </Text>
           </Pressable>
+          
           <Pressable onPress={() => confirmDelete(item.id)} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
             <Text style={{ color: '#EF4444' }}>Delete</Text>
           </Pressable>
@@ -1244,10 +1299,39 @@ function MainApp() {
             }
           ]}>
             <Text style={styles.pointsEmoji}>💎</Text>
-            <Text style={{ color: isDark ? 'white' : 'white', fontSize: 13, fontWeight: '500' }}>
-              {remainingPoints} pt{remainingPoints !== 1 ? 's' : ''} left
+            <Text style={{ color: isDark ? 'white' : 'white', fontSize: 15, fontWeight: '500' }}>
+              {remainingPoints} daily pt{remainingPoints !== 1 ? 's' : ''} left
             </Text>
           </Animated.View>
+          
+          {hasUpvotesToday && (
+            <Pressable 
+              onPress={undoLastUpvote}
+              style={({ pressed }) => [
+                styles.undoBtn, 
+                { 
+                  backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)',
+                  opacity: pressed ? 0.7 : 1
+                }
+              ]}
+            >
+              <Text style={[styles.undoBtnText, { color: isDark ? 'white' : 'white' }]}>↶ Undo</Text>
+            </Pressable>
+          )}
+          
+          <Pressable 
+            onPress={resetDailyPoints}
+            style={({ pressed }) => [
+              styles.resetBtn, 
+              { 
+                backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)',
+                opacity: pressed ? 0.7 : 1
+              }
+            ]}
+          >
+            <Text style={[styles.resetBtnText, { color: isDark ? 'white' : 'white' }]}>↻</Text>
+          </Pressable>
+          
           <Pressable style={[styles.addBtn, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)' }]} onPress={openAdd}>
             <Text style={[styles.addBtnText, { color: isDark ? 'white' : 'white' }]}>＋</Text>
           </Pressable>
@@ -1852,6 +1936,34 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 20,
   },
+  undoBtn: {
+    marginLeft: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  undoBtnText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  resetBtn: {
+    marginLeft: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resetBtnText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '700',
+  },
   pointsDisplay: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1936,21 +2048,75 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   image: {
-    width: 96,
-    height: 96,
+    width: 77,
+    height: 77,
     borderRadius: 12,
     backgroundColor: '#FFFFFF',
   },
   title: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '700',
     flexShrink: 1,
   },
-  pointsRow: {
-    marginTop: 12,
-    flexDirection: 'row',
+  pointsBadge: {
+    backgroundColor: 'rgba(74, 124, 89, 0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    minWidth: 40,
     alignItems: 'center',
-    justifyContent: 'space-between',
+  },
+  pointsBadgeText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  dateText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  priceText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  purchasedToggle: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  purchasedToggleText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  votingControls: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  upvotePill: {
+    width: 40,
+    height: 50,
+    borderRadius: 20,
+    backgroundColor: 'transparent',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'column',
+    paddingVertical: 6,
+  },
+  upvoteArrow: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  upvoteCount: {
+    fontSize: 14,
+    fontWeight: '800',
   },
   circleBtn: {
     width: 44,
@@ -1969,7 +2135,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   actionsRow: {
-    marginTop: 12,
+    marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

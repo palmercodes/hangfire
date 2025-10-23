@@ -1256,16 +1256,14 @@ function MainApp() {
               styles.purchasedToggle,
               { 
                 opacity: pressed ? 0.6 : 1,
-                backgroundColor: item.isPurchased ? theme.green : 'transparent',
-                borderColor: theme.green,
               }
             ]}
           >
             <Text style={[
               styles.purchasedToggleText, 
-              { color: item.isPurchased ? 'white' : theme.green }
+              { color: theme.subtext }
             ]}>
-              {item.isPurchased ? '✓ Purchased' : '○ Mark purchased'}
+              {item.isPurchased ? '✓ Purchased' : '○ Purchased'}
             </Text>
           </Pressable>
           
@@ -2079,16 +2077,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   purchasedToggle: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    minWidth: 120,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     alignItems: 'center',
   },
   purchasedToggleText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '400',
   },
   votingControls: {
     alignItems: 'center',

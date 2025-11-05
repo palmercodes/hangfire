@@ -37,7 +37,7 @@ type PersistedState = {
   lastResetDate: string; // yyyy-mm-dd
 };
 
-const MAX_DAILY_POINTS = 15; // Temporarily increased for testing trending feature
+const MAX_DAILY_POINTS = 15;
 const STORAGE_KEY = 'wishlist_app_state_v2';
 const GREEN = '#4A7C59';
 
@@ -1120,7 +1120,7 @@ function MainApp() {
           Impulse purchases, begone!
         </Text>
         <Text style={[styles.emptyStateSubtitle, { color: theme.subtext }]}>
-          Next time you want to buy something, add it to this list instead. Hold on.. Hang fire.. Every day you'll get 3 points you can assign to the items you want most. Over time you can see which items you really want, and which ones you only thought you wanted for a day.
+          Next time you want to buy something, add it to this list instead. Hold on.. Hang fire.. Every day you'll get 15 points you can assign to the items you want most. Over time you can see which items you really want, and which ones you only thought you wanted for a day.
         </Text>
         <Text style={[styles.emptyStateAction, { color: theme.text }]}>
           Add your first item using ＋ button above

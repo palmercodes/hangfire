@@ -4,14 +4,14 @@ A wishlist app meets personal finance tool that helps you combat impulse purchas
 
 ## 📖 Overview
 
-Hangfire is a React Native mobile app built with Expo that gamifies the process of managing a wishlist. Instead of buying things impulsively, you add them to your Hangfire list. Each day you get 3 points to allocate to items you want most. Over time, you'll see which items you consistently prioritize and which were just fleeting desires.
+Hangfire is a React Native mobile app built with Expo that gamifies the process of managing a wishlist. Instead of buying things impulsively, you add them to your Hangfire list. Each day you get 15 points to allocate to items you want most. Over time, you'll see which items you consistently prioritize and which were just fleeting desires.
 
 **Core Philosophy**: "Hold on... Hang fire... before you buy."
 
 ## ✨ Features
 
 ### Daily Points System
-- Get **3 points per day** to allocate to your wishlist items
+- Get **15 points per day** to allocate to your wishlist items
 - Points reset daily automatically
 - Upvote (↑) items you want most today
 - Downvote (↓) to undo recent votes and redistribute points
@@ -116,7 +116,7 @@ The entire app is currently contained in a single `App.tsx` file with the follow
 
 #### State Management
 - `items`: Array of wishlist items
-- `remainingPoints`: Daily points remaining (0-3)
+- `remainingPoints`: Daily points remaining (0-15)
 - `lastResetDate`: Tracks when points were last reset
 - `selectedItem`: Currently viewed item in detail modal
 - Various UI state (modals, forms, sorting, etc.)
@@ -221,7 +221,7 @@ function getTodayKey(): string {
 }
 ```
 
-On app load, compares `lastResetDate` with today's date. If different, resets `remainingPoints` to 3.
+On app load, compares `lastResetDate` with today's date. If different, resets `remainingPoints` to 15.
 
 ## 💾 Data Persistence
 

@@ -1597,63 +1597,8 @@ function MainApp() {
                     </View>
                   )}
 
-                {/* Points section */}
-                <View style={styles.detailPointsSection}>
-                  <Text style={[styles.detailPointsLabel, { color: theme.text }]}>Current Points</Text>
-                  {getWeeklyPoints(selectedItem) > 0 && (
-                    <Text style={[styles.detailWeeklyPoints, { 
-                      color: getTrendingStatus(selectedItem) === 'hot' ? '#FF6B35' : getTrendingStatus(selectedItem) === 'trending' ? theme.green : theme.subtext 
-                    }]}>
-                      {getWeeklyPoints(selectedItem)} points this week
-                    </Text>
-                  )}
-                  <View style={styles.detailPointsRow}>
-                    <Pressable
-                      onPress={() => addPoint(selectedItem.id)}
-                      disabled={remainingPoints <= 0}
-                      style={({ pressed }) => [
-                        styles.detailCircleBtn,
-                        {
-                          borderColor: theme.green,
-                          opacity: pressed ? 0.8 : 1,
-                          backgroundColor: remainingPoints > 0 ? 'transparent' : theme.border,
-                        }
-                      ]}
-                    >
-                      <Animated.Text style={[
-                        styles.detailBtnText,
-                        {
-                          color: remainingPoints > 0 ? theme.green : theme.subtext,
-                          transform: [{ scale: getUpvoteAnim(selectedItem.id) }]
-                        }
-                      ]}>
-                        ↑
-                      </Animated.Text>
-                    </Pressable>
-
-                    <Animated.Text style={[styles.detailPointsText, { color: theme.text, transform: [{ scale: pointAnim }] }]}>
-                      {selectedItem.points}
-                    </Animated.Text>
-
-                    <Pressable
-                      onPress={() => removePoint(selectedItem.id)}
-                      disabled={selectedItem.points <= 0 || remainingPoints >= MAX_DAILY_POINTS}
-                      style={({ pressed }) => [
-                        styles.detailCircleBtn,
-                        {
-                          borderColor: theme.green,
-                          opacity: pressed ? 0.8 : 1,
-                          backgroundColor: (selectedItem.points > 0 && remainingPoints < MAX_DAILY_POINTS) ? 'transparent' : theme.border,
-                        }
-                      ]}
-                    >
-                      <Text style={[styles.detailBtnText, { color: (selectedItem.points > 0 && remainingPoints < MAX_DAILY_POINTS) ? theme.green : theme.subtext }]}>↓</Text>
-                    </Pressable>
-                  </View>
-                </View>
-
-                {/* Purchase link */}
-                {displayItem.link && (
+                {/* Purchase link - Only show when not editing */}
+                {!isEditingItem && displayItem.link && (
                   <Pressable
                     onPress={() => openPurchaseLink(displayItem.link!)}
                     style={({ pressed }) => [
@@ -1665,8 +1610,8 @@ function MainApp() {
                   </Pressable>
                 )}
 
-                {/* Options section */}
-                {selectedItem.options && selectedItem.options.length > 0 && (
+                {/* Options section - Only show when not editing */}
+                {!isEditingItem && selectedItem.options && selectedItem.options.length > 0 && (
                   <View style={styles.optionsSection}>
                     <Text style={[styles.optionsTitle, { color: theme.text }]}>Options</Text>
                     {selectedItem.options.map((option) => (
@@ -1712,16 +1657,18 @@ function MainApp() {
                   </View>
                 )}
 
-                {/* Add Option button */}
-                <Pressable
-                  onPress={openAddOption}
-                  style={({ pressed }) => [
-                    styles.addOptionButton,
-                    { borderColor: theme.green, opacity: pressed ? 0.7 : 1 }
-                  ]}
-                >
-                  <Text style={[styles.addOptionText, { color: theme.green }]}>+ Add Option</Text>
-                </Pressable>
+                {/* Add Option button - Only show when not editing */}
+                {!isEditingItem && (
+                  <Pressable
+                    onPress={openAddOption}
+                    style={({ pressed }) => [
+                      styles.addOptionButton,
+                      { borderColor: theme.green, opacity: pressed ? 0.7 : 1 }
+                    ]}
+                  >
+                    <Text style={[styles.addOptionText, { color: theme.green }]}>+ Add Option</Text>
+                  </Pressable>
+                )}
 
                 {/* Date added */}
                 <Text style={[styles.detailDate, { color: theme.subtext }]}>
@@ -2299,28 +2246,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 20,
+    gap: 16,
   },
-  detailCircleBtn: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+  detailDownvoteBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
   },
-  detailBtnText: {
-    fontSize: 24,
+  detailDownvoteText: {
+    fontSize: 20,
     fontWeight: '700',
-  },
-  detailPointsText: {
-    fontSize: 32,
-    fontWeight: '800',
   },
   purchaseLinkButton: {
     borderRadius: 12,

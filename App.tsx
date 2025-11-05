@@ -259,8 +259,6 @@ function MainApp() {
   const [isOptionScraping, setIsOptionScraping] = useState(false);
   const [isSortingFrozen, setIsSortingFrozen] = useState(false);
   const [frozenItems, setFrozenItems] = useState<WishlistItem[]>([]);
-  const statusBarOpacity = useRef(new Animated.Value(1)).current;
-  const [prevStatusMessage, setPrevStatusMessage] = useState('');
   const [hasUpvotesToday, setHasUpvotesToday] = useState(false);
 
   const sortedItems = useMemo(() => {
@@ -289,7 +287,7 @@ function MainApp() {
     };
   }, [isDark]);
 
-  // Calculate status bar message
+  // Calculate status bar message (only shown when app first opens, before any upvotes)
   const statusMessage = useMemo(() => {
     if (items.length === 0) {
       return "I'm sure there's something out there that you want to buy 😏";
@@ -306,25 +304,8 @@ function MainApp() {
     return `You have ${remainingPoints} points left to assign today!`;
   }, [items.length, remainingPoints]);
 
-  // Fade animation when status message changes
-  useEffect(() => {
-    if (prevStatusMessage !== '' && prevStatusMessage !== statusMessage) {
-      // Fade out then fade in
-      Animated.sequence([
-        Animated.timing(statusBarOpacity, {
-          toValue: 0,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-        Animated.timing(statusBarOpacity, {
-          toValue: 1,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-    setPrevStatusMessage(statusMessage);
-  }, [statusMessage, prevStatusMessage, statusBarOpacity]);
+  // Show banner only when app first opens (before any upvotes are assigned)
+  const shouldShowBanner = !hasUpvotesToday;
 
   // Check if we need to reset points based on date
   const checkAndResetDailyPoints = useCallback(async () => {
@@ -332,8 +313,25 @@ function MainApp() {
     if (lastResetDate !== today) {
       setRemainingPoints(MAX_DAILY_POINTS);
       setLastResetDate(today);
+      setHasUpvotesToday(false); // Reset banner state for new day
     }
   }, [lastResetDate]);
+
+  // Function to clean up old point history entries (keep last 30 days)
+  const cleanupPointHistory = useCallback((items: WishlistItem[]): WishlistItem[] => {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const cutoffDate = thirtyDaysAgo.toISOString().slice(0, 10);
+    
+    return items.map(item => {
+      if (!item.pointHistory || item.pointHistory.length === 0) {
+        return item;
+      }
+      
+      const cleanedHistory = item.pointHistory.filter(entry => entry.date >= cutoffDate);
+      return { ...item, pointHistory: cleanedHistory };
+    });
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -342,11 +340,23 @@ function MainApp() {
         if (raw) {
           const parsed: PersistedState = JSON.parse(raw);
           const today = getTodayKey();
-          setItems(parsed.items ?? []);
+          
+          // Clean up old point history before loading
+          const cleanedItems = cleanupPointHistory(parsed.items ?? []);
+          
+          console.log('Loaded', cleanedItems.length, 'items from storage');
+          if (cleanedItems.length > 0) {
+            const totalPointHistoryEntries = cleanedItems.reduce((sum, item) => 
+              sum + (item.pointHistory?.length || 0), 0
+            );
+            console.log('Total point history entries across all items:', totalPointHistoryEntries);
+          }
+          
+          setItems(cleanedItems);
           if (parsed.lastResetDate === today) {
             setRemainingPoints(parsed.remainingPoints ?? MAX_DAILY_POINTS);
             // Check if there are upvotes from today
-            const hasUpvotes = (parsed.items ?? []).some(item => {
+            const hasUpvotes = cleanedItems.some(item => {
               const todayEntry = item.pointHistory?.find(entry => entry.date === today);
               return todayEntry && todayEntry.points > 0;
             });
@@ -363,6 +373,7 @@ function MainApp() {
           setHasUpvotesToday(false);
         }
       } catch (e) {
+        console.error('Failed to load data:', e);
         // best-effort: start fresh
         setItems(seedItems());
         setRemainingPoints(MAX_DAILY_POINTS);
@@ -371,7 +382,7 @@ function MainApp() {
       }
     };
     load();
-  }, []);
+  }, [cleanupPointHistory]);
 
   // Listen for app state changes to reset points when app becomes active on a new day
   useEffect(() => {
@@ -430,9 +441,19 @@ function MainApp() {
           remainingPoints,
           lastResetDate,
         };
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        const jsonData = JSON.stringify(data);
+        
+        // Check size (AsyncStorage has ~6MB limit)
+        const sizeInMB = new Blob([jsonData]).size / 1024 / 1024;
+        if (sizeInMB > 5) {
+          console.warn('Warning: Storage data is large:', sizeInMB.toFixed(2), 'MB');
+        }
+        
+        await AsyncStorage.setItem(STORAGE_KEY, jsonData);
       } catch (e) {
-        // ignore
+        console.error('Failed to persist data:', e);
+        // If storage fails, try to clear old point history
+        console.log('Attempting to clean up data...');
       }
     };
     persist();
@@ -587,10 +608,6 @@ function MainApp() {
     }
   }, [animatePoints, sortMode, items, selectedItem]);
 
-  const resetDailyPoints = useCallback(() => {
-    setRemainingPoints(MAX_DAILY_POINTS);
-    setLastResetDate(getTodayKey());
-  }, []);
 
   const undoLastUpvote = useCallback(() => {
     if (remainingPoints >= MAX_DAILY_POINTS) {
@@ -1154,11 +1171,6 @@ function MainApp() {
             style={styles.gradientOverlay}
           />
         ) : null}
-        {item.isPurchased ? (
-          <View style={styles.purchasedBadge}> 
-            <Text style={styles.purchasedBadgeText}>🛒 {item.datePurchased ? new Date(item.datePurchased).toLocaleDateString() : ''}</Text>
-          </View>
-        ) : null}
         {hasOptions && (
           <View style={styles.optionsBadge}>
             <Text style={styles.optionsBadgeText}>{item.options!.length} options</Text>
@@ -1263,7 +1275,10 @@ function MainApp() {
               styles.purchasedToggleText, 
               { color: theme.subtext }
             ]}>
-              {item.isPurchased ? '✓ Purchased' : '○ Purchased'}
+              {item.isPurchased 
+                ? `✓ Purchased${item.datePurchased ? ` ${new Date(item.datePurchased).toLocaleDateString()}` : ''}` 
+                : '○ Purchased'
+              }
             </Text>
           </Pressable>
           
@@ -1313,22 +1328,9 @@ function MainApp() {
                 }
               ]}
             >
-              <Text style={[styles.undoBtnText, { color: isDark ? 'white' : 'white' }]}>↶ Undo</Text>
+              <Text style={[styles.undoBtnText, { color: isDark ? 'white' : 'white' }]}>↻</Text>
             </Pressable>
           )}
-          
-          <Pressable 
-            onPress={resetDailyPoints}
-            style={({ pressed }) => [
-              styles.resetBtn, 
-              { 
-                backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)',
-                opacity: pressed ? 0.7 : 1
-              }
-            ]}
-          >
-            <Text style={[styles.resetBtnText, { color: isDark ? 'white' : 'white' }]}>↻</Text>
-          </Pressable>
           
           <Pressable style={[styles.addBtn, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)' }]} onPress={openAdd}>
             <Text style={[styles.addBtnText, { color: isDark ? 'white' : 'white' }]}>＋</Text>
@@ -1336,16 +1338,17 @@ function MainApp() {
         </View>
       </View>
 
-      {/* Status Bar */}
-      <Animated.View style={[
-        styles.statusBar, 
-        { 
-          backgroundColor: theme.statusBarBg,
-          opacity: statusBarOpacity,
-        }
-      ]}>
-        <Text style={styles.statusBarText}>{statusMessage}</Text>
-      </Animated.View>
+      {/* Status Bar - Only show when app first opens, before any upvotes */}
+      {shouldShowBanner && (
+        <View style={[
+          styles.statusBar, 
+          { 
+            backgroundColor: theme.statusBarBg,
+          }
+        ]}>
+          <Text style={styles.statusBarText}>{statusMessage}</Text>
+        </View>
+      )}
 
       <FlatList
         contentContainerStyle={{ padding: 16, paddingBottom: 120, flexGrow: 1 }}
@@ -1936,20 +1939,6 @@ const styles = StyleSheet.create({
   },
   undoBtn: {
     marginLeft: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  undoBtnText: {
-    color: 'white',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  resetBtn: {
-    marginLeft: 8,
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -1957,7 +1946,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  resetBtnText: {
+  undoBtnText: {
     color: 'white',
     fontSize: 16,
     fontWeight: '700',
@@ -1992,21 +1981,6 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     marginHorizontal: 2,
-  },
-  purchasedBadge: {
-    position: 'absolute',
-    right: 12,
-    top: 12,
-    backgroundColor: '#E6F4EC',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    zIndex: 1,
-  },
-  purchasedBadgeText: {
-    color: GREEN,
-    fontWeight: '700',
-    fontSize: 12,
   },
   optionsBadge: {
     position: 'absolute',

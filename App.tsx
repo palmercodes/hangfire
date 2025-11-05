@@ -49,8 +49,12 @@ function formatPrice(price: number): string {
 
 
 function getTodayKey(): string {
+  // Use local date instead of UTC to ensure reset happens at local midnight
   const now = new Date();
-  return now.toISOString().slice(0, 10);
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function getWeeklyPoints(item: WishlistItem): number {
@@ -502,6 +506,18 @@ function MainApp() {
   }, [upvoteAnims]);
 
   const addPoint = useCallback((id: string) => {
+    // Check if we need to reset points based on date change
+    const today = getTodayKey();
+    const shouldReset = lastResetDate !== today;
+    const currentRemainingPoints = shouldReset ? MAX_DAILY_POINTS : remainingPoints;
+    
+    // Reset points if date changed
+    if (shouldReset) {
+      setRemainingPoints(MAX_DAILY_POINTS);
+      setLastResetDate(today);
+      setHasUpvotesToday(false);
+    }
+    
     // Only freeze sorting if we're sorting by points
     if (sortMode === 'points') {
       setIsSortingFrozen(true);
@@ -509,11 +525,10 @@ function MainApp() {
     }
 
     setItems(prev => {
-      if (remainingPoints <= 0) {
+      if (currentRemainingPoints <= 0) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         return prev;
       }
-      const today = getTodayKey();
       const next = prev.map(it => {
         if (it.id === id) {
           const newPointHistory = [...(it.pointHistory || [])];
@@ -538,12 +553,12 @@ function MainApp() {
       
       return next;
     });
-    const newRemainingPoints = remainingPoints > 0 ? remainingPoints - 1 : remainingPoints;
+    const newRemainingPoints = currentRemainingPoints > 0 ? currentRemainingPoints - 1 : currentRemainingPoints;
     setRemainingPoints(newRemainingPoints);
     setHasUpvotesToday(true); // Mark that upvotes were made today
     animatePoints();
     animateUpvote(id);
-    if (remainingPoints > 0) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (currentRemainingPoints > 0) Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
     // Animate the "pts left" label when hitting 0
     if (newRemainingPoints === 0) {
@@ -556,9 +571,20 @@ function MainApp() {
         setIsSortingFrozen(false);
       }, 1000); // 1 second delay
     }
-  }, [remainingPoints, animatePoints, animateUpvote, animatePtsLeftEmpty, sortMode, items, selectedItem]);
+  }, [remainingPoints, lastResetDate, animatePoints, animateUpvote, animatePtsLeftEmpty, sortMode, items, selectedItem]);
 
   const removePoint = useCallback((id: string) => {
+    // Check if we need to reset points based on date change
+    const today = getTodayKey();
+    const shouldReset = lastResetDate !== today;
+    
+    // Reset points if date changed
+    if (shouldReset) {
+      setRemainingPoints(MAX_DAILY_POINTS);
+      setLastResetDate(today);
+      setHasUpvotesToday(false);
+    }
+    
     // Only freeze sorting if we're sorting by points
     if (sortMode === 'points') {
       setIsSortingFrozen(true);
@@ -571,7 +597,6 @@ function MainApp() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         return prev;
       }
-      const today = getTodayKey();
       const next = prev.map(it => {
         if (it.id === id) {
           const newPointHistory = [...(it.pointHistory || [])];
@@ -606,7 +631,7 @@ function MainApp() {
         setIsSortingFrozen(false);
       }, 1000); // 1 second delay
     }
-  }, [animatePoints, sortMode, items, selectedItem]);
+  }, [lastResetDate, animatePoints, sortMode, items, selectedItem]);
 
 
   const undoLastUpvote = useCallback(() => {

@@ -158,6 +158,30 @@ async function scrapeImageFromUrl(url: string): Promise<string | null> {
   }
 }
 
+function decodeHtmlEntities(input: string | null | undefined): string | null | undefined {
+  if (!input) return input;
+
+  let decoded = input
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+
+  decoded = decoded.replace(/&#(\d+);/g, (_match, dec) => {
+    const code = parseInt(dec, 10);
+    return Number.isNaN(code) ? _match : String.fromCharCode(code);
+  });
+
+  decoded = decoded.replace(/&#x([0-9a-f]+);/gi, (_match, hex) => {
+    const code = parseInt(hex, 16);
+    return Number.isNaN(code) ? _match : String.fromCharCode(code);
+  });
+
+  return decoded;
+}
+
 type ScrapedProductData = {
   name: string | null;
   price: number | null;
@@ -186,11 +210,13 @@ async function scrapeProductData(url: string): Promise<ScrapedProductData> {
     let name = null;
     const ogTitleMatch = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["'][^>]*>/i);
     if (ogTitleMatch && ogTitleMatch[1]) {
-      name = ogTitleMatch[1].trim();
+      const rawTitle = ogTitleMatch[1].trim();
+      name = decodeHtmlEntities(rawTitle)?.trim() ?? rawTitle;
     } else {
       const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
       if (titleMatch && titleMatch[1]) {
-        name = titleMatch[1].trim();
+        const rawTitle = titleMatch[1].trim();
+        name = decodeHtmlEntities(rawTitle)?.trim() ?? rawTitle;
       }
     }
 
@@ -403,20 +429,50 @@ function MainApp() {
 
   // Handle deep links from browser sharing
   useEffect(() => {
-    const handleDeepLink = (url: string) => {
-      console.log('Received deep link:', url);
-      
-      // Handle hangfire://share/URL format
-      if (url.includes('hangfire://share/')) {
-        const sharedUrl = url.replace('hangfire://share/', '');
-        if (sharedUrl && sharedUrl.startsWith('http')) {
-          setFormLink(sharedUrl);
-          setIsAddOpen(true);
-          // Auto-trigger URL scraping
-          setTimeout(() => {
-            handleUrlChange(sharedUrl);
-          }, 500);
+    const handleDeepLink = (incomingUrl: string) => {
+      if (!incomingUrl) return;
+
+      console.log('Received deep link:', incomingUrl);
+
+      const extractSharedUrl = (urlString: string): string | null => {
+        try {
+          const parsed = new URL(urlString);
+          if (parsed.hostname === 'share') {
+            // Support hangfire://share/<encodedUrl>
+            const pathComponent = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
+            if (pathComponent) {
+              return pathComponent;
+            }
+          }
+
+          const queryValue = parsed.searchParams.get('url');
+          if (queryValue) {
+            return queryValue;
+          }
+        } catch (error) {
+          console.log('Deep link parsing failed, falling back to string replace:', error);
         }
+
+        if (urlString.includes('hangfire://share/')) {
+          const fallback = urlString.replace('hangfire://share/', '');
+          try {
+            return decodeURIComponent(fallback);
+          } catch {
+            return fallback;
+          }
+        }
+
+        return null;
+      };
+
+      const sharedUrl = extractSharedUrl(incomingUrl);
+      if (sharedUrl && sharedUrl.startsWith('http')) {
+        setFormLink(sharedUrl);
+        setIsAddOpen(true);
+        // Auto-trigger URL scraping
+        setTimeout(() => {
+          handleUrlChange(sharedUrl);
+        }, 500);
       }
     };
 

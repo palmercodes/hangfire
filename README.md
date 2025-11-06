@@ -36,9 +36,9 @@ Hangfire is a React Native mobile app built with Expo that gamifies the process 
 - Daily points automatically reset based on date
 
 ### Share Extension Support
-- Share product URLs directly to Hangfire from Safari/browsers
-- Auto-opens add item modal with pre-filled link
-- Automatic product data scraping
+- Share product URLs directly to Hangfire from Safari or any iOS app that exposes the native share sheet
+- Auto-opens the add item modal with the shared link pre-filled
+- Automatic product data scraping kicks off as soon as the modal appears
 
 ## 🛠 Tech Stack
 
@@ -237,12 +237,22 @@ type PersistedState = {
 
 Auto-saves on every state change via `useEffect`.
 
-## 🔗 Deep Linking
+## 🔗 Deep Linking & Share Extension
 
-Supports URL scheme `hangfire://share/URL` for browser sharing:
-- Opens add item modal automatically
-- Pre-fills product URL
-- Triggers auto-scraping
+Hangfire registers the custom URL scheme `hangfire://` and understands both of the following formats:
+
+- `hangfire://share?url=<encodedProductUrl>` (preferred)
+- `hangfire://share/<encodedProductUrl>` (legacy fallback)
+
+When a supported link is received, the app automatically opens the add item modal, pre-fills the product link, and starts scraping product data.
+
+### Testing the iOS Share Extension
+
+1. Build & install the app on a device or simulator (`npx expo run:ios` or via Xcode).
+2. Open any URL in Safari (e.g. a Nike product page) and tap the share icon.
+3. Tap `More` → enable **Hangfire Share** if it is not already visible, then add it to your favorites for quick access.
+4. Select **Hangfire Share**. The extension briefly shows a loading view, triggers the deep link, and dismisses.
+5. Hangfire opens (or comes to the foreground) with the current URL already pasted into the add item view.
 
 ## 🎯 Future Enhancements
 

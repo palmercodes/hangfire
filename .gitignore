@@ -15,7 +15,15 @@ yarn-debug.log*
 yarn-error.log*
 
 # Expo iOS/Android native directories (managed workflow)
-ios/
 android/
+
+# iOS build artifacts we still want ignored
+ios/build/
+ios/Pods/
+/ios/Hangfire_cleanup_backup_*/
+
+# Allow the iOS project sources we now maintain
+!ios/Hangfire/**
+!ios/HangfireShareExtension/**
 
 

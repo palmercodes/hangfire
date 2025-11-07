@@ -47,7 +47,6 @@ function formatPrice(price: number): string {
   return `$${rounded}`;
 }
 
-
 function getTodayKey(): string {
   // Use local date instead of UTC to ensure reset happens at local midnight
   const now = new Date();
@@ -1220,6 +1219,8 @@ function MainApp() {
     return upvoteAnims[id];
   }, [upvoteAnims]);
 
+  const headerGradientColors: [string, string] = isDark ? ['#123524', '#041A11'] : ['#B7E4C7', GREEN];
+
   const renderItem = useCallback(({ item }: { item: WishlistItem }) => {
     const displayItem = getCurrentDisplayItem(item);
     const hasOptions = item.options && item.options.length > 0;
@@ -1375,12 +1376,22 @@ function MainApp() {
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       
-      <LinearGradient
-        colors={isDark ? ['#0B0B0B', '#1A1A1A'] : ['#F8FAFC', '#F1F5F9']}
-        style={StyleSheet.absoluteFillObject}
-      />
+      <View pointerEvents="none" style={[styles.statusBarGradient, { height: insets.top }]}>
+        <LinearGradient
+          colors={headerGradientColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFillObject}
+        />
+      </View>
 
-      <View style={[styles.header, { backgroundColor: GREEN }]}>
+      <View style={styles.header}>
+        <LinearGradient
+          colors={headerGradientColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFillObject}
+        />
         <View style={styles.headerTitleContainer}>
           <Text style={[styles.headerTitle, { color: isDark ? 'white' : 'white' }]}>Hangfire 🔥</Text>
         </View>
@@ -1397,7 +1408,6 @@ function MainApp() {
               {remainingPoints} daily pt{remainingPoints !== 1 ? 's' : ''} left
             </Text>
           </Animated.View>
-          
           {hasUpvotesToday && (
             <Pressable 
               onPress={undoLastUpvote}
@@ -1412,7 +1422,6 @@ function MainApp() {
               <Text style={[styles.undoBtnText, { color: isDark ? 'white' : 'white' }]}>↻</Text>
             </Pressable>
           )}
-          
           <Pressable style={[styles.addBtn, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)' }]} onPress={openAdd}>
             <Text style={[styles.addBtnText, { color: isDark ? 'white' : 'white' }]}>＋</Text>
           </Pressable>
@@ -1909,6 +1918,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  statusBarGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+  },
   headerTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1917,6 +1932,24 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 22,
     fontWeight: '800',
+  },
+  headerIconPill: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    shadowColor: '#00000030',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  headerIcon: {
+    width: 22,
+    height: 22,
   },
   statusBar: {
     paddingHorizontal: 16,

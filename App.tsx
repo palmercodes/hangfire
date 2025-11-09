@@ -7,6 +7,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets, SafeAreaProvider } from 'react-native-safe-area-context';
+import { NavigationContainer } from '@react-navigation/native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { BlurView } from 'expo-blur';
+import { Ionicons } from '@expo/vector-icons';
 
 type ItemOption = {
   id: string;
@@ -40,6 +45,7 @@ type PersistedState = {
 const MAX_DAILY_POINTS = 15;
 const STORAGE_KEY = 'wishlist_app_state_v2';
 const GREEN = '#4A7C59';
+const Tab = createBottomTabNavigator();
 
 function formatPrice(price: number): string {
   if (price === 0) return 'Price TBD';
@@ -270,7 +276,6 @@ function MainApp() {
   const [formPrice, setFormPrice] = useState('');
   const [formLink, setFormLink] = useState('');
   const [formImageUrl, setFormImageUrl] = useState('');
-  const [hidePurchased, setHidePurchased] = useState(false);
   const [sortMode, setSortMode] = useState<'points' | 'date' | 'price'>('points');
   const [isSaving, setIsSaving] = useState(false);
   const [selectedItem, setSelectedItem] = useState<WishlistItem | null>(null);
@@ -289,17 +294,28 @@ function MainApp() {
   const [isSortingFrozen, setIsSortingFrozen] = useState(false);
   const [frozenItems, setFrozenItems] = useState<WishlistItem[]>([]);
   const [hasUpvotesToday, setHasUpvotesToday] = useState(false);
+  const [activeTab, setActiveTab] = useState<'Wishlist' | 'Purchased'>('Wishlist');
+  const [showPurchasedInWishlist, setShowPurchasedInWishlist] = useState(false);
 
   const sortedItems = useMemo(() => {
-    // Use frozen items if sorting is temporarily frozen
     const sourceItems = isSortingFrozen ? frozenItems : items;
-    const filtered = hidePurchased ? sourceItems.filter(i => !i.isPurchased) : sourceItems;
+    const filtered = showPurchasedInWishlist ? sourceItems : sourceItems.filter(i => !i.isPurchased);
     const arr = [...filtered];
     if (sortMode === 'points') arr.sort((a, b) => b.points - a.points);
     if (sortMode === 'date') arr.sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
     if (sortMode === 'price') arr.sort((a, b) => b.price - a.price);
     return arr;
-  }, [items, hidePurchased, sortMode, isSortingFrozen, frozenItems]);
+  }, [items, showPurchasedInWishlist, sortMode, isSortingFrozen, frozenItems]);
+
+  const purchasedTabItems = useMemo(() => {
+    const sourceItems = isSortingFrozen ? frozenItems : items;
+    const filtered = sourceItems.filter(i => i.isPurchased);
+    const arr = [...filtered];
+    if (sortMode === 'points') arr.sort((a, b) => b.points - a.points);
+    if (sortMode === 'date') arr.sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
+    if (sortMode === 'price') arr.sort((a, b) => b.price - a.price);
+    return arr;
+  }, [items, sortMode, isSortingFrozen, frozenItems]);
 
   const theme = useMemo(() => {
     return {
@@ -382,6 +398,7 @@ function MainApp() {
           }
           
           setItems(cleanedItems);
+          setShowPurchasedInWishlist(false);
           if (parsed.lastResetDate === today) {
             setRemainingPoints(parsed.remainingPoints ?? MAX_DAILY_POINTS);
             // Check if there are upvotes from today
@@ -400,6 +417,7 @@ function MainApp() {
           setRemainingPoints(MAX_DAILY_POINTS);
           setLastResetDate(getTodayKey());
           setHasUpvotesToday(false);
+          setShowPurchasedInWishlist(false);
         }
       } catch (e) {
         console.error('Failed to load data:', e);
@@ -408,6 +426,7 @@ function MainApp() {
         setRemainingPoints(MAX_DAILY_POINTS);
         setLastResetDate(getTodayKey());
         setHasUpvotesToday(false);
+        setShowPurchasedInWishlist(false);
       }
     };
     load();
@@ -753,15 +772,22 @@ function MainApp() {
   }, []);
 
   const togglePurchased = useCallback((id: string) => {
+    let toggledToPurchased = false;
     setItems(prev => prev.map(it => {
       if (it.id !== id) return it;
       const nextPurchased = !it.isPurchased;
+      if (nextPurchased) {
+        toggledToPurchased = true;
+      }
       return {
         ...it,
         isPurchased: nextPurchased,
         datePurchased: nextPurchased ? new Date().toISOString() : undefined,
       };
     }));
+    if (toggledToPurchased) {
+      setShowPurchasedInWishlist(true);
+    }
   }, []);
 
   const openItemDetail = useCallback((item: WishlistItem) => {
@@ -1196,18 +1222,32 @@ function MainApp() {
     return (
       <View style={styles.emptyStateContainer}>
         <Text style={[styles.emptyStateEmoji, { color: theme.subtext }]}>📝</Text>
-        <Text style={[styles.emptyStateTitle, { color: theme.text }]}>
+        <Text style={[styles.emptyStateTitle, { color: theme.text }]}> 
           Impulse purchases, begone!
         </Text>
-        <Text style={[styles.emptyStateSubtitle, { color: theme.subtext }]}>
+        <Text style={[styles.emptyStateSubtitle, { color: theme.subtext }]}> 
           Next time you want to buy something, add it to this list instead. Hold on.. Hang fire.. Every day you'll get 15 points you can assign to the items you want most. Over time you can see which items you really want, and which ones you only thought you wanted for a day.
         </Text>
-        <Text style={[styles.emptyStateAction, { color: theme.text }]}>
+        <Text style={[styles.emptyStateAction, { color: theme.text }]}> 
           Add your first item using ＋ button above
         </Text>
         <View style={styles.emptyStateArrow}>
           <Text style={[styles.emptyStateArrowText, { color: theme.green }]}>☝️</Text>
         </View>
+      </View>
+    );
+  }, [theme]);
+
+  const renderPurchasedEmptyState = useCallback(() => {
+    return (
+      <View style={styles.emptyStateContainer}>
+        <Text style={[styles.emptyStateEmoji, { color: theme.subtext }]}>💰</Text>
+        <Text style={[styles.emptyStateTitle, { color: theme.text }]}> 
+          Nothing purchased yet
+        </Text>
+        <Text style={[styles.emptyStateSubtitle, { color: theme.subtext }]}> 
+          Items you mark as purchased stay in the wishlist until you reopen the app. When you come back, they'll live here.
+        </Text>
       </View>
     );
   }, [theme]);
@@ -1221,262 +1261,326 @@ function MainApp() {
 
   const headerGradientColors: [string, string] = isDark ? ['#123524', '#041A11'] : ['#B7E4C7', GREEN];
 
-  const renderItem = useCallback(({ item }: { item: WishlistItem }) => {
-    const displayItem = getCurrentDisplayItem(item);
-    const hasOptions = item.options && item.options.length > 0;
-    const upvoteAnim = getUpvoteAnim(item.id);
-    const trendingStatus = getTrendingStatus(item);
-    const weeklyPoints = getWeeklyPoints(item);
-    
-    return (
-      <Pressable
-        onPress={() => openItemDetail(item)}
-        style={[
-          styles.card,
-          {
-            backgroundColor: theme.card,
-            borderColor: theme.border,
-            opacity: item.isPurchased ? 0.9 : 1,
-            shadowColor: theme.shadow,
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.1,
-            shadowRadius: 8,
-            elevation: 3,
-          },
-        ]}
-      > 
-        {item.isPurchased ? (
-          <LinearGradient
-            colors={['rgba(74,124,89,0.10)', 'rgba(74,124,89,0.00)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.gradientOverlay}
-          />
-        ) : null}
-        {hasOptions && (
-          <View style={styles.optionsBadge}>
-            <Text style={styles.optionsBadgeText}>{item.options!.length} options</Text>
-          </View>
-        )}
-        <View style={styles.row}>
-          <Image
-            source={{ uri: displayItem.imageUrl || 'https://via.placeholder.com/96' }}
-            style={[styles.image, item.isPurchased ? { opacity: 0.6 } : null]}
-            resizeMode="cover"
-          />
-          <View style={{ flex: 1, marginLeft: 12, marginRight: 12 }}>
-            {/* Title */}
-            <Text
-              style={[
-                styles.title,
-                {
-                  color: item.isPurchased ? theme.subtext : theme.text,
-                  marginBottom: 4,
-                },
-              ]}
-              numberOfLines={2}
-            >
-              {displayItem.name}
-            </Text>
-            
-            {/* Date and Price Row */}
-            <View style={[styles.row, { alignItems: 'center', marginBottom: 8 }]}>
-              <Text style={[styles.dateText, { color: theme.subtext }]}>
-                📅 {new Date(item.dateAdded).toLocaleDateString()}
-              </Text>
-              <Text style={{ color: theme.subtext, marginHorizontal: 8 }}>•</Text>
-              <Text style={[styles.priceText, { color: theme.green }]}>
-                {formatPrice(displayItem.price)}
-              </Text>
-            </View>
-            
-            {/* Weekly Points */}
-            {weeklyPoints > 0 && (
-              <Text style={{ 
-                color: trendingStatus === 'hot' ? '#FF6B35' : trendingStatus === 'trending' ? theme.green : theme.subtext, 
-                fontSize: 12,
-                fontWeight: '600',
-                marginBottom: 8,
-              }}>
-                ↑ {weeklyPoints} pts this week
-              </Text>
-            )}
-          </View>
-          
-          {/* Voting Controls - Right Side */}
-          <View style={styles.votingControls}>
-            <Pressable
-              onPress={(e) => {
-                e.stopPropagation();
-                addPoint(item.id);
-              }}
-              disabled={remainingPoints <= 0}
-              style={({ pressed }) => [
-                styles.upvotePill,
-                { 
-                  opacity: pressed ? 0.8 : 1,
-                  backgroundColor: remainingPoints > 0 ? theme.green : theme.border,
-                  transform: [{ scale: pressed ? 1.05 : 1 }],
-                },
-              ]}
-            >
-              <Animated.Text style={[
-                styles.upvoteArrow, 
-                { 
-                  color: remainingPoints > 0 ? 'white' : theme.subtext,
-                  transform: [{ scale: upvoteAnim }]
-                }
-              ]}>
-                ↑
-              </Animated.Text>
-              <Animated.Text style={[
-                styles.upvoteCount,
-                { 
-                  color: remainingPoints > 0 ? 'white' : theme.subtext,
-                  transform: [{ scale: pointAnim }]
-                }
-              ]}>
-                {item.points}
-              </Animated.Text>
-            </Pressable>
-          </View>
-        </View>
+  const createRenderItem = useCallback(
+    (showPointControls: boolean) =>
+      ({ item }: { item: WishlistItem }) => {
+        const displayItem = getCurrentDisplayItem(item);
+        const hasOptions = item.options && item.options.length > 0;
+        const upvoteAnim = getUpvoteAnim(item.id);
+        const trendingStatus = getTrendingStatus(item);
+        const weeklyPoints = getWeeklyPoints(item);
 
-        {/* Compact Actions Row */}
-        <View style={[styles.actionsRow]}> 
-          <Pressable 
-            onPress={() => togglePurchased(item.id)} 
-            style={({ pressed }) => [
-              styles.purchasedToggle,
-              { 
-                opacity: pressed ? 0.6 : 1,
-              }
+        return (
+          <Pressable
+            onPress={() => openItemDetail(item)}
+            style={[
+              styles.card,
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                opacity: item.isPurchased ? 0.9 : 1,
+                shadowColor: theme.shadow,
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 8,
+                elevation: 3,
+              },
             ]}
           >
-            <Text style={[
-              styles.purchasedToggleText, 
-              { color: theme.subtext }
-            ]}>
-              {item.isPurchased 
-                ? `✓ Purchased${item.datePurchased ? ` ${new Date(item.datePurchased).toLocaleDateString()}` : ''}` 
-                : '○ Purchased'
-              }
-            </Text>
+            {item.isPurchased ? (
+              <LinearGradient
+                colors={['rgba(74,124,89,0.10)', 'rgba(74,124,89,0.00)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.gradientOverlay}
+              />
+            ) : null}
+            {hasOptions && (
+              <View style={styles.optionsBadge}>
+                <Text style={styles.optionsBadgeText}>{item.options!.length} options</Text>
+              </View>
+            )}
+            <View style={styles.row}>
+              <Image
+                source={{ uri: displayItem.imageUrl || 'https://via.placeholder.com/96' }}
+                style={[styles.image, item.isPurchased ? { opacity: 0.6 } : null]}
+                resizeMode="cover"
+              />
+              <View style={{ flex: 1, marginLeft: 12, marginRight: 12 }}>
+                {/* Title */}
+                <Text
+                  style={[
+                    styles.title,
+                    {
+                      color: item.isPurchased ? theme.subtext : theme.text,
+                      marginBottom: 4,
+                    },
+                  ]}
+                  numberOfLines={2}
+                >
+                  {displayItem.name}
+                </Text>
+
+                {/* Date and Price Row */}
+                <View style={[styles.row, { alignItems: 'center', marginBottom: 8 }]}
+                >
+                  <Text style={[styles.dateText, { color: theme.subtext }]}
+                  >
+                    📅 {new Date(item.dateAdded).toLocaleDateString()}
+                  </Text>
+                  <Text style={{ color: theme.subtext, marginHorizontal: 8 }}>•</Text>
+                  <Text style={[styles.priceText, { color: theme.green }]}>
+                    {formatPrice(displayItem.price)}
+                  </Text>
+                </View>
+
+                {/* Weekly Points */}
+                {weeklyPoints > 0 && (
+                  <Text
+                    style={{
+                      color:
+                        trendingStatus === 'hot'
+                          ? '#FF6B35'
+                          : trendingStatus === 'trending'
+                            ? theme.green
+                            : theme.subtext,
+                      fontSize: 12,
+                      fontWeight: '600',
+                      marginBottom: 8,
+                    }}
+                  >
+                    ↑ {weeklyPoints} pts this week
+                  </Text>
+                )}
+              </View>
+
+              {/* Voting Controls - Right Side */}
+              {showPointControls ? (
+                <View style={styles.votingControls}>
+                  <Pressable
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      addPoint(item.id);
+                    }}
+                    disabled={remainingPoints <= 0}
+                    style={({ pressed }) => [
+                      styles.upvotePill,
+                      {
+                        opacity: pressed ? 0.8 : 1,
+                        backgroundColor: remainingPoints > 0 ? theme.green : theme.border,
+                        transform: [{ scale: pressed ? 1.05 : 1 }],
+                      },
+                    ]}
+                  >
+                    <Animated.Text
+                      style={[
+                        styles.upvoteArrow,
+                        {
+                          color: remainingPoints > 0 ? 'white' : theme.subtext,
+                          transform: [{ scale: upvoteAnim }],
+                        },
+                      ]}
+                    >
+                      ↑
+                    </Animated.Text>
+                    <Animated.Text
+                      style={[
+                        styles.upvoteCount,
+                        {
+                          color: remainingPoints > 0 ? 'white' : theme.subtext,
+                          transform: [{ scale: pointAnim }],
+                        },
+                      ]}
+                    >
+                      {item.points}
+                    </Animated.Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+
+            {/* Compact Actions Row */}
+            <View style={[styles.actionsRow]}>
+              <Pressable
+                onPress={() => togglePurchased(item.id)}
+                style={({ pressed }) => [
+                  styles.purchasedToggle,
+                  {
+                    opacity: pressed ? 0.6 : 1,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.purchasedToggleText,
+                    { color: theme.subtext },
+                  ]}
+                >
+                  {item.isPurchased
+                    ? `✓ Purchased${item.datePurchased ? ` ${new Date(item.datePurchased).toLocaleDateString()}` : ''}`
+                    : '○ Purchased'}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => confirmDelete(item.id)}
+                style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}
+              >
+                <Text style={{ color: '#EF4444' }}>Delete</Text>
+              </Pressable>
+            </View>
           </Pressable>
-          
-          <Pressable onPress={() => confirmDelete(item.id)} style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1 }]}>
-            <Text style={{ color: '#EF4444' }}>Delete</Text>
-          </Pressable>
-        </View>
-      </Pressable>
+        );
+      },
+    [
+      addPoint,
+      confirmDelete,
+      togglePurchased,
+      theme,
+      remainingPoints,
+      pointAnim,
+      openItemDetail,
+      getCurrentDisplayItem,
+      getUpvoteAnim,
+      getTrendingStatus,
+      getWeeklyPoints,
+    ]
+  );
+
+  const TabContent: React.FC<{ filterPurchasedOnly: boolean }> = ({ filterPurchasedOnly }) => {
+    const showPointControls = !filterPurchasedOnly;
+    const data = useMemo(
+      () => (filterPurchasedOnly ? purchasedTabItems : sortedItems),
+      [filterPurchasedOnly, purchasedTabItems, sortedItems]
     );
-  }, [addPoint, removePoint, confirmDelete, togglePurchased, theme, remainingPoints, pointAnim, openItemDetail, getCurrentDisplayItem, getUpvoteAnim]);
+    const renderItem = useMemo(
+      () => createRenderItem(showPointControls),
+      [createRenderItem, showPointControls]
+    );
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
-      
-      <View pointerEvents="none" style={[styles.statusBarGradient, { height: insets.top }]}>
-        <LinearGradient
-          colors={headerGradientColors}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-      </View>
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
 
-      <View style={styles.header}>
-        <LinearGradient
-          colors={headerGradientColors}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-        <View style={styles.headerTitleContainer}>
-          <Text style={[styles.headerTitle, { color: isDark ? 'white' : 'white' }]}>Hangfire 🔥</Text>
-        </View>
-        <View style={styles.headerActions}> 
-          <Animated.View style={[
-            styles.pointsDisplay, 
-            { 
-              backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)',
-              transform: [{ scale: ptsLeftAnim }]
-            }
-          ]}>
-            <Text style={styles.pointsEmoji}>💎</Text>
-            <Text style={{ color: isDark ? 'white' : 'white', fontSize: 15, fontWeight: '500' }}>
-              {remainingPoints} daily pt{remainingPoints !== 1 ? 's' : ''} left
-            </Text>
-          </Animated.View>
-          {hasUpvotesToday && (
-            <Pressable 
-              onPress={undoLastUpvote}
-              style={({ pressed }) => [
-                styles.undoBtn, 
-                { 
-                  backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)',
-                  opacity: pressed ? 0.7 : 1
-                }
-              ]}
-            >
-              <Text style={[styles.undoBtnText, { color: isDark ? 'white' : 'white' }]}>↻</Text>
-            </Pressable>
-          )}
-          <Pressable style={[styles.addBtn, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)' }]} onPress={openAdd}>
-            <Text style={[styles.addBtnText, { color: isDark ? 'white' : 'white' }]}>＋</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Status Bar - Only show when app first opens, before any upvotes */}
-      {shouldShowBanner && (
-        <View style={[
-          styles.statusBar, 
-          { 
-            backgroundColor: theme.statusBarBg,
-          }
-        ]}>
-          <Text style={styles.statusBarText}>{statusMessage}</Text>
-        </View>
-      )}
-
-      <FlatList
-        contentContainerStyle={{ padding: 16, paddingBottom: 120, flexGrow: 1 }}
-        data={sortedItems}
-        keyExtractor={(it) => it.id}
-        renderItem={renderItem}
-        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-        ListEmptyComponent={renderEmptyState}
-      />
-
-      <View style={[styles.footer, { borderTopColor: theme.border, backgroundColor: theme.bg, paddingBottom: Math.max(insets.bottom, 12) }]}> 
-        <Pressable style={styles.sortButton} onPress={() => {
-          setSortMode(m => (m === 'points' ? 'date' : m === 'date' ? 'price' : 'points'));
-        }}>
-          <Text style={[styles.sortButtonText, { color: theme.text }]}>
-            {sortMode === 'points' ? 'Sort: Points' : sortMode === 'date' ? 'Sort: Date' : 'Sort: Price'}
-          </Text>
-        </Pressable>
-        <View style={styles.toggleContainer}>
-          <Text style={[styles.toggleLabel, { color: theme.text }]}>
-            Include Purchased
-          </Text>
-          <Switch
-            value={!hidePurchased}
-            onValueChange={(value) => setHidePurchased(!value)}
-            trackColor={{ false: '#E5E7EB', true: GREEN }}
-            thumbColor={hidePurchased ? '#9CA3AF' : '#FFFFFF'}
-            ios_backgroundColor="#E5E7EB"
+        <View pointerEvents="none" style={[styles.statusBarGradient, { height: insets.top }]}>
+          <LinearGradient
+            colors={headerGradientColors}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
           />
         </View>
-      </View>
+
+        <View style={styles.header}>
+          <LinearGradient
+            colors={headerGradientColors}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <View style={styles.headerTitleContainer}>
+            <Text style={[styles.headerTitle, { color: isDark ? 'white' : 'white' }]}>Hangfire 🔥</Text>
+          </View>
+          <View style={styles.headerActions}>
+            {showPointControls ? (
+              <>
+                <Animated.View
+                  style={[
+                    styles.pointsDisplay,
+                    {
+                      backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)',
+                      transform: [{ scale: ptsLeftAnim }],
+                    },
+                  ]}
+                >
+                  <Text style={styles.pointsEmoji}>💎</Text>
+                  <Text style={{ color: isDark ? 'white' : 'white', fontSize: 15, fontWeight: '500' }}>
+                    {remainingPoints} daily pt{remainingPoints !== 1 ? 's' : ''} left
+                  </Text>
+                </Animated.View>
+
+                {hasUpvotesToday && (
+                  <Pressable
+                    onPress={undoLastUpvote}
+                    style={({ pressed }) => [
+                      styles.undoBtn,
+                      {
+                        backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)',
+                        opacity: pressed ? 0.7 : 1,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.undoBtnText, { color: isDark ? 'white' : 'white' }]}>↻</Text>
+                  </Pressable>
+                )}
+              </>
+            ) : null}
+
+            <Pressable
+              style={[
+                styles.addBtn,
+                { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.2)' },
+              ]}
+              onPress={openAdd}
+            >
+              <Text style={[styles.addBtnText, { color: isDark ? 'white' : 'white' }]}>＋</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {shouldShowBanner && showPointControls && (
+          <View
+            style={[
+              styles.statusBar,
+              {
+                backgroundColor: theme.statusBarBg,
+              },
+            ]}
+          >
+            <Text style={styles.statusBarText}>{statusMessage}</Text>
+          </View>
+        )}
+
+        <FlatList
+          contentContainerStyle={{ padding: 16, paddingBottom: 120, flexGrow: 1 }}
+          data={data}
+          keyExtractor={(it) => it.id}
+          renderItem={renderItem}
+          extraData={items}
+          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          ListEmptyComponent={filterPurchasedOnly ? renderPurchasedEmptyState : renderEmptyState}
+        />
+
+        <View style={{ height: Math.max(insets.bottom, 16) }} />
+      </SafeAreaView>
+    );
+  };
+
+  return (
+    <View style={{ flex: 1 }}>
+      <Tab.Navigator
+        screenOptions={{ headerShown: false }}
+        tabBar={(props) => <FrostedTabBar {...props} />}
+      >
+        <Tab.Screen
+          name="Wishlist"
+          listeners={{ focus: () => setActiveTab('Wishlist') }}
+        >
+          {() => <TabContent filterPurchasedOnly={false} />}
+        </Tab.Screen>
+        <Tab.Screen
+          name="Purchased"
+          listeners={{ focus: () => setActiveTab('Purchased') }}
+        >
+          {() => <TabContent filterPurchasedOnly />}
+        </Tab.Screen>
+      </Tab.Navigator>
 
       <Modal visible={isAddOpen} animationType="slide" onRequestClose={() => setIsAddOpen(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
             <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
               <Text style={[styles.modalTitle, { color: theme.text }]}>Add Item</Text>
-              
               <Text style={[styles.inputLabel, { color: theme.text }]}>Purchase Link (optional)</Text>
               <View style={styles.inputWithButton}>
                 <TextInput
@@ -1500,7 +1604,7 @@ function MainApp() {
               )}
 
               {scrapedData && (scrapedData.name || scrapedData.price !== null || scrapedData.imageUrl) && (
-                <View style={[styles.scrapedPreview, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={[styles.scrapedPreview, { backgroundColor: theme.card, borderColor: theme.border }]}> 
                   <Text style={[styles.scrapedPreviewTitle, { color: theme.text }]}>✨ Scraped Data</Text>
                   {scrapedData.imageUrl && (
                     <Image source={{ uri: scrapedData.imageUrl }} style={styles.scrapedImage} resizeMode="contain" />
@@ -1543,7 +1647,7 @@ function MainApp() {
                 style={[styles.input, { color: theme.text, borderColor: theme.border }]}
               />
 
-              <Pressable onPress={pickImage} style={({ pressed }) => [styles.pickBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}>
+              <Pressable onPress={pickImage} style={({ pressed }) => [styles.pickBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}> 
                 <Text style={{ color: theme.text }}>Pick from Photos</Text>
               </Pressable>
 
@@ -1554,11 +1658,11 @@ function MainApp() {
               <View style={{ height: 16 }} />
 
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Pressable onPress={() => setIsAddOpen(false)} style={({ pressed }) => [styles.cancelBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}>
+                <Pressable onPress={() => setIsAddOpen(false)} style={({ pressed }) => [styles.cancelBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}> 
                   <Text style={{ color: theme.text }}>Cancel</Text>
                 </Pressable>
-                <Pressable 
-                  onPress={saveNewItem} 
+                <Pressable
+                  onPress={saveNewItem}
                   disabled={isSaving}
                   style={({ pressed }) => [styles.saveBtn, { backgroundColor: GREEN, opacity: pressed ? 0.8 : 1 }]}
                 >
@@ -1573,20 +1677,20 @@ function MainApp() {
       </Modal>
 
       {/* Item Detail Modal */}
-      <Modal 
-        visible={!!selectedItem && !isAddOptionOpen} 
-        animationType="slide" 
+      <Modal
+        visible={!!selectedItem && !isAddOptionOpen}
+        animationType="slide"
         onRequestClose={closeItemDetail}
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
           <StatusBar style={isDark ? 'light' : 'dark'} />
-          
+
           {selectedItem && (() => {
             const displayItem = getCurrentDisplayItem(selectedItem);
             return (
               <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
                 {/* Header with back button */}
-                <View style={[styles.detailHeader, { borderBottomColor: theme.border }]}>
+                <View style={[styles.detailHeader, { borderBottomColor: theme.border }]}> 
                   <Pressable onPress={closeItemDetail} style={styles.backButton}>
                     <Text style={[styles.backButtonText, { color: theme.text }]}>← Back</Text>
                   </Pressable>
@@ -1610,7 +1714,7 @@ function MainApp() {
                     onPress={() => updateItemImage(selectedItem.id)}
                     style={({ pressed }) => [
                       styles.changeImageButton,
-                      { opacity: pressed ? 0.8 : 1 }
+                      { opacity: pressed ? 0.8 : 1 },
                     ]}
                   >
                     <Text style={styles.changeImageText}>📷 Edit</Text>
@@ -1618,7 +1722,7 @@ function MainApp() {
                 </View>
 
                 {/* Content */}
-                <View style={[styles.detailContent, { backgroundColor: theme.card }]}>
+                <View style={[styles.detailContent, { backgroundColor: theme.card }]}> 
                   {isEditingItem ? (
                     <View>
                       <Text style={[styles.inputLabel, { color: theme.text }]}>Name</Text>
@@ -1650,159 +1754,186 @@ function MainApp() {
                   ) : (
                     <View>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                        <Text style={[styles.detailTitle, { color: theme.text, flex: 1, marginRight: 12 }]} numberOfLines={2}>{displayItem.name}</Text>
-                        <Pressable onPress={startEditingItem} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1, flexShrink: 0 }]}>
+                        <Text style={[styles.detailTitle, { color: theme.text, flex: 1, marginRight: 12 }]} numberOfLines={2}> {displayItem.name}</Text>
+                        <Pressable onPress={startEditingItem} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1, flexShrink: 0 }]}> 
                           <Text style={{ color: theme.green, fontSize: 16 }}>✏️ Edit</Text>
                         </Pressable>
                       </View>
-                      
+
                       <Text style={[styles.detailPrice, { color: theme.green }]}>
                         {formatPrice(displayItem.price)}
                       </Text>
                     </View>
                   )}
 
-                {/* Purchase link - Only show when not editing */}
-                {!isEditingItem && displayItem.link && (
-                  <Pressable
-                    onPress={() => openPurchaseLink(displayItem.link!)}
-                    style={({ pressed }) => [
-                      styles.purchaseLinkButton,
-                      { backgroundColor: GREEN, opacity: pressed ? 0.8 : 1 }
-                    ]}
-                  >
-                    <Text style={styles.purchaseLinkText}>🛒 Open Purchase Link</Text>
-                  </Pressable>
-                )}
+                  {!isEditingItem && displayItem.link && (
+                    <Pressable
+                      onPress={() => openPurchaseLink(displayItem.link!)}
+                      style={({ pressed }) => [
+                        styles.purchaseLinkButton,
+                        { backgroundColor: GREEN, opacity: pressed ? 0.8 : 1 },
+                      ]}
+                    >
+                      <Text style={styles.purchaseLinkText}>🛒 Open Purchase Link</Text>
+                    </Pressable>
+                  )}
 
-                {/* Options section - Only show when not editing */}
-                {!isEditingItem && selectedItem.options && selectedItem.options.length > 0 && (
-                  <View style={styles.optionsSection}>
-                    <Text style={[styles.optionsTitle, { color: theme.text }]}>Options</Text>
-                    {selectedItem.options.map((option) => (
-                      <View key={option.id} style={[styles.optionCard, { backgroundColor: theme.bg, borderColor: theme.border }]}>
-                        <View style={styles.optionHeader}>
-                          <Image
-                            source={{ uri: option.imageUrl || 'https://via.placeholder.com/60' }}
-                            style={styles.optionImage}
-                          />
-                          <Text style={[styles.optionName, { color: theme.text }]} numberOfLines={2}>{option.name}</Text>
-                        </View>
-                        <View style={styles.optionFooter}>
-                          <Text style={[styles.optionPrice, { color: theme.green }]}>{formatPrice(option.price)}</Text>
-                          <View style={styles.optionActions}>
-                            {selectedItem.selectedOptionId === option.id ? (
-                              <View style={[styles.selectedBadge, { backgroundColor: GREEN }]}>
-                                <Text style={styles.selectedText}>✓ Selected</Text>
-                              </View>
-                            ) : (
+                  {!isEditingItem && selectedItem.options && selectedItem.options.length > 0 && (
+                    <View style={styles.optionsSection}>
+                      <Text style={[styles.optionsTitle, { color: theme.text }]}>Options</Text>
+                      {selectedItem.options.map((option) => (
+                        <View key={option.id} style={[styles.optionCard, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+                          <View style={styles.optionHeader}>
+                            <Image
+                              source={{ uri: option.imageUrl || 'https://via.placeholder.com/60' }}
+                              style={styles.optionImage}
+                            />
+                            <Text style={[styles.optionName, { color: theme.text }]} numberOfLines={2}>{option.name}</Text>
+                          </View>
+                          <View style={styles.optionFooter}> 
+                            <Text style={[styles.optionPrice, { color: theme.green }]}>{formatPrice(option.price)}</Text>
+                            <View style={styles.optionActions}>
+                              {selectedItem.selectedOptionId === option.id ? (
+                                <View style={[styles.selectedBadge, { backgroundColor: GREEN }]}> 
+                                  <Text style={styles.selectedText}>✓ Selected</Text>
+                                </View>
+                              ) : (
+                                <Pressable
+                                  onPress={() => selectOptionAsMain(selectedItem.id, option.id)}
+                                  style={({ pressed }) => [
+                                    styles.selectButton,
+                                    { borderColor: theme.green, opacity: pressed ? 0.7 : 1 },
+                                  ]}
+                                >
+                                  <Text style={[styles.selectButtonText, { color: theme.green }]}>Select</Text>
+                                </Pressable>
+                              )}
                               <Pressable
-                                onPress={() => selectOptionAsMain(selectedItem.id, option.id)}
+                                onPress={() => deleteOption(selectedItem.id, option.id)}
                                 style={({ pressed }) => [
-                                  styles.selectButton,
-                                  { borderColor: theme.green, opacity: pressed ? 0.7 : 1 }
+                                  styles.deleteOptionButton,
+                                  { opacity: pressed ? 0.7 : 1 },
                                 ]}
                               >
-                                <Text style={[styles.selectButtonText, { color: theme.green }]}>Select</Text>
+                                <Text style={styles.deleteOptionText}>🗑️</Text>
                               </Pressable>
-                            )}
-                            <Pressable
-                              onPress={() => deleteOption(selectedItem.id, option.id)}
-                              style={({ pressed }) => [
-                                styles.deleteOptionButton,
-                                { opacity: pressed ? 0.7 : 1 }
-                              ]}
-                            >
-                              <Text style={styles.deleteOptionText}>🗑️</Text>
-                            </Pressable>
+                            </View>
                           </View>
                         </View>
-                      </View>
-                    ))}
-                  </View>
-                )}
+                      ))}
+                    </View>
+                  )}
 
-                {/* Add Option button - Only show when not editing */}
-                {!isEditingItem && (
-                  <Pressable
-                    onPress={openAddOption}
-                    style={({ pressed }) => [
-                      styles.addOptionButton,
-                      { borderColor: theme.green, opacity: pressed ? 0.7 : 1 }
-                    ]}
-                  >
-                    <Text style={[styles.addOptionText, { color: theme.green }]}>+ Add Option</Text>
-                  </Pressable>
-                )}
+                  {!isEditingItem && (
+                    <Pressable
+                      onPress={openAddOption}
+                      style={({ pressed }) => [
+                        styles.addOptionButton,
+                        { borderColor: theme.green, opacity: pressed ? 0.7 : 1 },
+                      ]}
+                    >
+                      <Text style={[styles.addOptionText, { color: theme.green }]}>+ Add Option</Text>
+                    </Pressable>
+                  )}
 
-                {/* Date added */}
-                <Text style={[styles.detailDate, { color: theme.subtext }]}>
-                  Added: {new Date(selectedItem.dateAdded).toLocaleDateString()}
-                </Text>
-
-                {selectedItem.isPurchased && selectedItem.datePurchased && (
-                  <Text style={[styles.detailDate, { color: theme.subtext }]}>
-                    Purchased: {new Date(selectedItem.datePurchased).toLocaleDateString()}
+                  <Text style={[styles.detailDate, { color: theme.subtext }]}> 
+                    Added: {new Date(selectedItem.dateAdded).toLocaleDateString()}
                   </Text>
-                )}
 
-                {/* Action buttons */}
-                <View style={styles.detailActions}>
-                  <Pressable
-                    onPress={() => {
-                      togglePurchased(selectedItem.id);
-                      closeItemDetail();
-                    }}
-                    style={({ pressed }) => [
-                      styles.detailActionButton,
-                      { borderColor: theme.green, opacity: pressed ? 0.7 : 1 }
-                    ]}
-                  >
-                    <Text style={[styles.detailActionText, { color: theme.green }]}>
-                      {selectedItem.isPurchased ? 'Unmark Purchased' : 'Mark as Purchased'}
+                  {selectedItem.isPurchased && selectedItem.datePurchased && (
+                    <Text style={[styles.detailDate, { color: theme.subtext }]}> 
+                      Purchased: {new Date(selectedItem.datePurchased).toLocaleDateString()}
                     </Text>
-                  </Pressable>
+                  )}
 
-                  <Pressable
-                    onPress={() => {
-                      confirmDelete(selectedItem.id);
-                      closeItemDetail();
-                    }}
-                    style={({ pressed }) => [
-                      styles.detailActionButton,
-                      { borderColor: '#EF4444', opacity: pressed ? 0.7 : 1 }
-                    ]}
-                  >
-                    <Text style={[styles.detailActionText, { color: '#EF4444' }]}>
-                      Delete Item
-                    </Text>
-                  </Pressable>
+                  {activeTab !== 'Purchased' && (
+                    <View style={styles.detailPointsSection}>
+                      <Text style={[styles.detailPointsLabel, { color: theme.text }]}>Adjust Points</Text>
+                      <View style={styles.detailPointsRow}>
+                        <Pressable
+                          onPress={() => removePoint(selectedItem.id)}
+                          style={({ pressed }) => [
+                            styles.detailDownvoteBtn,
+                            {
+                              borderColor: theme.green,
+                              opacity: pressed ? 0.7 : 1,
+                              backgroundColor: 'rgba(74, 124, 89, 0.08)',
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.detailDownvoteText, { color: theme.green }]}>−</Text>
+                        </Pressable>
+                        <Text style={[styles.pointsText, { color: theme.text }]}>{selectedItem.points}</Text>
+                        <Pressable
+                          onPress={() => addPoint(selectedItem.id)}
+                          style={({ pressed }) => [
+                            styles.detailDownvoteBtn,
+                            {
+                              borderColor: theme.green,
+                              opacity: pressed ? 0.7 : 1,
+                              backgroundColor: 'rgba(74, 124, 89, 0.08)',
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.detailDownvoteText, { color: theme.green }]}>+</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  )}
+
+                  <View style={styles.detailActions}>
+                    <Pressable
+                      onPress={() => {
+                        togglePurchased(selectedItem.id);
+                        closeItemDetail();
+                      }}
+                      style={({ pressed }) => [
+                        styles.detailActionButton,
+                        { borderColor: theme.green, opacity: pressed ? 0.7 : 1 },
+                      ]}
+                    >
+                      <Text style={[styles.detailActionText, { color: theme.green }]}> 
+                        {selectedItem.isPurchased ? 'Unmark Purchased' : 'Mark as Purchased'}
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => {
+                        confirmDelete(selectedItem.id);
+                        closeItemDetail();
+                      }}
+                      style={({ pressed }) => [
+                        styles.detailActionButton,
+                        { borderColor: '#EF4444', opacity: pressed ? 0.7 : 1 },
+                      ]}
+                    >
+                      <Text style={[styles.detailActionText, { color: '#EF4444' }]}>Delete Item</Text>
+                    </Pressable>
+                  </View>
                 </View>
-              </View>
-            </ScrollView>
+              </ScrollView>
             );
           })()}
         </SafeAreaView>
       </Modal>
 
       {/* Add Option Modal */}
-      <Modal 
-        visible={isAddOptionOpen} 
-        animationType="slide" 
+      <Modal
+        visible={isAddOptionOpen}
+        animationType="slide"
         onRequestClose={() => setIsAddOptionOpen(false)}
         presentationStyle="fullScreen"
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-            {/* Header with back button */}
-            <View style={[styles.detailHeader, { borderBottomColor: theme.border }]}>
+            <View style={[styles.detailHeader, { borderBottomColor: theme.border }]}> 
               <Pressable onPress={() => setIsAddOptionOpen(false)} style={styles.backButton}>
                 <Text style={[styles.backButtonText, { color: theme.text }]}>← Back</Text>
               </Pressable>
               <Text style={[styles.detailHeaderTitle, { color: theme.text }]}>Add Option</Text>
               <View style={{ width: 60 }} />
             </View>
-            
+
             <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
               <Text style={[styles.inputLabel, { color: theme.text }]}>Purchase Link (optional)</Text>
               <View style={styles.inputWithButton}>
@@ -1827,7 +1958,7 @@ function MainApp() {
               )}
 
               {optionScrapedData && (optionScrapedData.name || optionScrapedData.price !== null || optionScrapedData.imageUrl) && (
-                <View style={[styles.scrapedPreview, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={[styles.scrapedPreview, { backgroundColor: theme.card, borderColor: theme.border }]}> 
                   <Text style={[styles.scrapedPreviewTitle, { color: theme.text }]}>✨ Scraped Data</Text>
                   {optionScrapedData.imageUrl && (
                     <Image source={{ uri: optionScrapedData.imageUrl }} style={styles.scrapedImage} resizeMode="contain" />
@@ -1870,7 +2001,7 @@ function MainApp() {
                 style={[styles.input, { color: theme.text, borderColor: theme.border }]}
               />
 
-              <Pressable onPress={pickOptionImage} style={({ pressed }) => [styles.pickBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}>
+              <Pressable onPress={pickOptionImage} style={({ pressed }) => [styles.pickBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}> 
                 <Text style={{ color: theme.text }}>Pick from Photos</Text>
               </Pressable>
 
@@ -1881,11 +2012,11 @@ function MainApp() {
               <View style={{ height: 16 }} />
 
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Pressable onPress={() => setIsAddOptionOpen(false)} style={({ pressed }) => [styles.cancelBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}>
+                <Pressable onPress={() => setIsAddOptionOpen(false)} style={({ pressed }) => [styles.cancelBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}> 
                   <Text style={{ color: theme.text }}>Cancel</Text>
                 </Pressable>
-                <Pressable 
-                  onPress={saveNewOption} 
+                <Pressable
+                  onPress={saveNewOption}
                   disabled={isSaving}
                   style={({ pressed }) => [styles.saveBtn, { backgroundColor: GREEN, opacity: pressed ? 0.8 : 1 }]}
                 >
@@ -1898,14 +2029,16 @@ function MainApp() {
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 export default function App() {
   return (
     <SafeAreaProvider>
-      <MainApp />
+      <NavigationContainer>
+        <MainApp />
+      </NavigationContainer>
     </SafeAreaProvider>
   );
 }
@@ -1932,24 +2065,6 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 22,
     fontWeight: '800',
-  },
-  headerIconPill: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-    shadowColor: '#00000030',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  headerIcon: {
-    width: 22,
-    height: 22,
   },
   statusBar: {
     paddingHorizontal: 16,
@@ -2024,18 +2139,6 @@ const styles = StyleSheet.create({
   pointsEmoji: {
     fontSize: 12,
     marginRight: 4,
-  },
-  sortButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: 'transparent',
-  },
-  sortButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
   },
   card: {
     borderRadius: 16,
@@ -2569,7 +2672,125 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 18,
   },
+  tabBarContainer: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 0,
+    alignItems: 'center',
+  },
+  tabBarBlur: {
+    width: '100%',
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    overflow: 'hidden',
+  },
+  tabBarItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  tabBarPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'transparent',
+  },
+  tabBarPillActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  tabBarLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  tabBarLabelActive: {
+    color: '#0B1F1A',
+  },
 });
+
+const FrostedTabBar: React.FC<BottomTabBarProps> = ({ state, descriptors, navigation }) => {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[styles.tabBarContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}> 
+      <BlurView intensity={60} tint="light" style={styles.tabBarBlur}>
+        {state.routes.map((route, index) => {
+          const { options } = descriptors[route.key];
+          const isFocused = state.index === index;
+
+          const onPress = () => {
+            const event = navigation.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            });
+
+            if (!isFocused && !event.defaultPrevented) {
+              navigation.navigate(route.name);
+            }
+          };
+
+          const iconName = route.name === 'Wishlist'
+            ? (isFocused ? 'home' : 'home-outline')
+            : (isFocused ? 'checkmark-done' : 'checkmark-done-outline');
+
+          const rawLabel =
+            options.tabBarLabel !== undefined
+              ? options.tabBarLabel
+              : options.title !== undefined
+                ? options.title
+                : route.name;
+          const label = typeof rawLabel === 'string' ? rawLabel : route.name;
+
+          return (
+            <Pressable
+              key={route.key}
+              accessibilityRole="button"
+              accessibilityState={isFocused ? { selected: true } : {}}
+              accessibilityLabel={options.tabBarAccessibilityLabel}
+              testID={options.tabBarTestID}
+              onPress={onPress}
+              style={styles.tabBarItem}
+            >
+              <View
+                style={[
+                  styles.tabBarPill,
+                  isFocused ? styles.tabBarPillActive : null,
+                ]}
+              >
+                <Ionicons
+                  name={iconName as any}
+                  size={18}
+                  color={isFocused ? '#0B1F1A' : '#4B5563'}
+                  style={{ marginRight: 6 }}
+                />
+                <Text
+                  style={[
+                    styles.tabBarLabel,
+                    isFocused ? styles.tabBarLabelActive : null,
+                  ]}
+                >
+                  {label}
+                </Text>
+              </View>
+            </Pressable>
+          );
+        })}
+      </BlurView>
+    </View>
+  );
+};
 
 
 

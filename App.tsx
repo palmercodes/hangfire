@@ -296,6 +296,7 @@ function MainApp() {
   const [hasUpvotesToday, setHasUpvotesToday] = useState(false);
   const [activeTab, setActiveTab] = useState<'Wishlist' | 'Purchased'>('Wishlist');
   const [showPurchasedInWishlist, setShowPurchasedInWishlist] = useState(false);
+  const [detailSource, setDetailSource] = useState<'Wishlist' | 'Purchased'>('Wishlist');
 
   const sortedItems = useMemo(() => {
     const sourceItems = isSortingFrozen ? frozenItems : items;
@@ -485,6 +486,8 @@ function MainApp() {
 
       const sharedUrl = extractSharedUrl(incomingUrl);
       if (sharedUrl && sharedUrl.startsWith('http')) {
+        setSelectedItem(null);
+        setIsAddOptionOpen(false);
         setFormLink(sharedUrl);
         setIsAddOpen(true);
         // Auto-trigger URL scraping
@@ -790,8 +793,9 @@ function MainApp() {
     }
   }, []);
 
-  const openItemDetail = useCallback((item: WishlistItem) => {
+  const openItemDetail = useCallback((item: WishlistItem, source: 'Wishlist' | 'Purchased') => {
     setSelectedItem(item);
+    setDetailSource(source);
   }, []);
 
   const closeItemDetail = useCallback(() => {
@@ -1272,7 +1276,7 @@ function MainApp() {
 
         return (
           <Pressable
-            onPress={() => openItemDetail(item)}
+            onPress={() => openItemDetail(item, showPointControls ? 'Wishlist' : 'Purchased')}
             style={[
               styles.card,
               {
@@ -1846,41 +1850,6 @@ function MainApp() {
                     </Text>
                   )}
 
-                  {activeTab !== 'Purchased' && (
-                    <View style={styles.detailPointsSection}>
-                      <Text style={[styles.detailPointsLabel, { color: theme.text }]}>Adjust Points</Text>
-                      <View style={styles.detailPointsRow}>
-                        <Pressable
-                          onPress={() => removePoint(selectedItem.id)}
-                          style={({ pressed }) => [
-                            styles.detailDownvoteBtn,
-                            {
-                              borderColor: theme.green,
-                              opacity: pressed ? 0.7 : 1,
-                              backgroundColor: 'rgba(74, 124, 89, 0.08)',
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.detailDownvoteText, { color: theme.green }]}>−</Text>
-                        </Pressable>
-                        <Text style={[styles.pointsText, { color: theme.text }]}>{selectedItem.points}</Text>
-                        <Pressable
-                          onPress={() => addPoint(selectedItem.id)}
-                          style={({ pressed }) => [
-                            styles.detailDownvoteBtn,
-                            {
-                              borderColor: theme.green,
-                              opacity: pressed ? 0.7 : 1,
-                              backgroundColor: 'rgba(74, 124, 89, 0.08)',
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.detailDownvoteText, { color: theme.green }]}>+</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  )}
-
                   <View style={styles.detailActions}>
                     <Pressable
                       onPress={() => {
@@ -2251,22 +2220,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
-  circleBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnText: {
-    fontSize: 22,
-    fontWeight: '700',
-  },
-  pointsText: {
-    fontSize: 24,
-    fontWeight: '800',
-  },
   actionsRow: {
     marginTop: 8,
     flexDirection: 'row',
@@ -2420,42 +2373,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 20,
   },
-  detailPointsSection: {
-    marginBottom: 20,
-  },
-  detailPointsLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  detailWeeklyPoints: {
+  detailDate: {
     fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  detailPointsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-  },
-  detailDownvoteBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  detailDownvoteText: {
-    fontSize: 20,
-    fontWeight: '700',
+    marginBottom: 8,
   },
   purchaseLinkButton: {
     borderRadius: 12,
@@ -2473,10 +2393,6 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '700',
-  },
-  detailDate: {
-    fontSize: 14,
-    marginBottom: 8,
   },
   detailActions: {
     marginTop: 20,

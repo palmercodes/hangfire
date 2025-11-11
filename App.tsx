@@ -158,7 +158,8 @@ async function scrapeImageFromUrl(url: string): Promise<string | null> {
 
     return null;
   } catch (error) {
-    // Image scraping made best effort; ignore failures in production
+    console.log('Image scraping failed:', error);
+    return null;
   }
 }
 
@@ -249,7 +250,8 @@ async function scrapeProductData(url: string): Promise<ScrapedProductData> {
 
     return { name, price, imageUrl };
   } catch (error) {
-    // Ignore scraping errors in production build
+    console.log('Product scraping failed:', error);
+    return { name: null, price: null, imageUrl: null };
   }
 }
 
@@ -387,6 +389,14 @@ function MainApp() {
           // Clean up old point history before loading
           const cleanedItems = cleanupPointHistory(parsed.items ?? []);
           
+          console.log('Loaded', cleanedItems.length, 'items from storage');
+          if (cleanedItems.length > 0) {
+            const totalPointHistoryEntries = cleanedItems.reduce((sum, item) => 
+              sum + (item.pointHistory?.length || 0), 0
+            );
+            console.log('Total point history entries across all items:', totalPointHistoryEntries);
+          }
+          
           setItems(cleanedItems);
           setShowPurchasedInWishlist(false);
           if (parsed.lastResetDate === today) {
@@ -410,7 +420,13 @@ function MainApp() {
           setShowPurchasedInWishlist(false);
         }
       } catch (e) {
-        // Attempt to clean up data on storage failure
+        console.error('Failed to load data:', e);
+        // best-effort: start fresh
+        setItems(seedItems());
+        setRemainingPoints(MAX_DAILY_POINTS);
+        setLastResetDate(getTodayKey());
+        setHasUpvotesToday(false);
+        setShowPurchasedInWishlist(false);
       }
     };
     load();
@@ -434,6 +450,8 @@ function MainApp() {
     const handleDeepLink = (incomingUrl: string) => {
       if (!incomingUrl) return;
 
+      console.log('Received deep link:', incomingUrl);
+
       const extractSharedUrl = (urlString: string): string | null => {
         try {
           const parsed = new URL(urlString);
@@ -450,7 +468,7 @@ function MainApp() {
             return queryValue;
           }
         } catch (error) {
-          // Deep-link parsing failure; fall back to string replace
+          console.log('Deep link parsing failed, falling back to string replace:', error);
         }
 
         if (urlString.includes('hangfire://share/')) {
@@ -511,7 +529,9 @@ function MainApp() {
         
         await AsyncStorage.setItem(STORAGE_KEY, jsonData);
       } catch (e) {
-        // Attempt to clean up data if storage fails
+        console.error('Failed to persist data:', e);
+        // If storage fails, try to clear old point history
+        console.log('Attempting to clean up data...');
       }
     };
     persist();
@@ -971,7 +991,8 @@ function MainApp() {
           setFormImageUrl(data.imageUrl);
         }
       } catch (error) {
-        // Ignore scraping failure when adding item
+        console.log('Scraping failed:', error);
+        setScrapedData(null);
       } finally {
         setIsScraping(false);
       }
@@ -990,7 +1011,8 @@ function MainApp() {
         Alert.alert('Clipboard Empty', 'No text found in clipboard to paste.');
       }
     } catch (error) {
-      // Ignore paste failure
+      console.log('Paste failed:', error);
+      Alert.alert('Paste Failed', 'Could not access clipboard. Please paste manually.');
     }
   }, [handleUrlChange]);
 
@@ -1013,7 +1035,8 @@ function MainApp() {
         Alert.alert('Clipboard Empty', 'No text found in clipboard to paste.');
       }
     } catch (error) {
-      // Ignore paste failure in option flow
+      console.log('Option paste failed:', error);
+      Alert.alert('Paste Failed', 'Could not access clipboard. Please paste manually.');
     }
   }, []);
 
@@ -1037,7 +1060,8 @@ function MainApp() {
           setOptionImageUrl(data.imageUrl);
         }
       } catch (error) {
-        // Ignore option scraping failures
+        console.log('Option scraping failed:', error);
+        setOptionScrapedData(null);
       } finally {
         setIsOptionScraping(false);
       }
@@ -1111,7 +1135,7 @@ function MainApp() {
           imageUrl = scrapedImage;
         }
       } catch (error) {
-        // Ignore image scraping failure when creating option
+        console.log('Image scraping failed:', error);
       }
     }
 
@@ -1175,7 +1199,7 @@ function MainApp() {
           imageUrl = scrapedImage;
         }
       } catch (error) {
-        // Ignore image scraping failure when saving new item
+        console.log('Image scraping failed:', error);
       }
     }
 

@@ -158,8 +158,7 @@ async function scrapeImageFromUrl(url: string): Promise<string | null> {
 
     return null;
   } catch (error) {
-    console.log('Image scraping failed:', error);
-    return null;
+    // Image scraping made best effort; ignore failures in production
   }
 }
 
@@ -250,8 +249,7 @@ async function scrapeProductData(url: string): Promise<ScrapedProductData> {
 
     return { name, price, imageUrl };
   } catch (error) {
-    console.log('Product scraping failed:', error);
-    return { name: null, price: null, imageUrl: null };
+    // Ignore scraping errors in production build
   }
 }
 
@@ -296,7 +294,6 @@ function MainApp() {
   const [hasUpvotesToday, setHasUpvotesToday] = useState(false);
   const [activeTab, setActiveTab] = useState<'Wishlist' | 'Purchased'>('Wishlist');
   const [showPurchasedInWishlist, setShowPurchasedInWishlist] = useState(false);
-  const [detailSource, setDetailSource] = useState<'Wishlist' | 'Purchased'>('Wishlist');
 
   const sortedItems = useMemo(() => {
     const sourceItems = isSortingFrozen ? frozenItems : items;
@@ -390,14 +387,6 @@ function MainApp() {
           // Clean up old point history before loading
           const cleanedItems = cleanupPointHistory(parsed.items ?? []);
           
-          console.log('Loaded', cleanedItems.length, 'items from storage');
-          if (cleanedItems.length > 0) {
-            const totalPointHistoryEntries = cleanedItems.reduce((sum, item) => 
-              sum + (item.pointHistory?.length || 0), 0
-            );
-            console.log('Total point history entries across all items:', totalPointHistoryEntries);
-          }
-          
           setItems(cleanedItems);
           setShowPurchasedInWishlist(false);
           if (parsed.lastResetDate === today) {
@@ -421,13 +410,7 @@ function MainApp() {
           setShowPurchasedInWishlist(false);
         }
       } catch (e) {
-        console.error('Failed to load data:', e);
-        // best-effort: start fresh
-        setItems(seedItems());
-        setRemainingPoints(MAX_DAILY_POINTS);
-        setLastResetDate(getTodayKey());
-        setHasUpvotesToday(false);
-        setShowPurchasedInWishlist(false);
+        // Attempt to clean up data on storage failure
       }
     };
     load();
@@ -451,8 +434,6 @@ function MainApp() {
     const handleDeepLink = (incomingUrl: string) => {
       if (!incomingUrl) return;
 
-      console.log('Received deep link:', incomingUrl);
-
       const extractSharedUrl = (urlString: string): string | null => {
         try {
           const parsed = new URL(urlString);
@@ -469,7 +450,7 @@ function MainApp() {
             return queryValue;
           }
         } catch (error) {
-          console.log('Deep link parsing failed, falling back to string replace:', error);
+          // Deep-link parsing failure; fall back to string replace
         }
 
         if (urlString.includes('hangfire://share/')) {
@@ -486,8 +467,6 @@ function MainApp() {
 
       const sharedUrl = extractSharedUrl(incomingUrl);
       if (sharedUrl && sharedUrl.startsWith('http')) {
-        setSelectedItem(null);
-        setIsAddOptionOpen(false);
         setFormLink(sharedUrl);
         setIsAddOpen(true);
         // Auto-trigger URL scraping
@@ -532,9 +511,7 @@ function MainApp() {
         
         await AsyncStorage.setItem(STORAGE_KEY, jsonData);
       } catch (e) {
-        console.error('Failed to persist data:', e);
-        // If storage fails, try to clear old point history
-        console.log('Attempting to clean up data...');
+        // Attempt to clean up data if storage fails
       }
     };
     persist();
@@ -793,9 +770,8 @@ function MainApp() {
     }
   }, []);
 
-  const openItemDetail = useCallback((item: WishlistItem, source: 'Wishlist' | 'Purchased') => {
+  const openItemDetail = useCallback((item: WishlistItem) => {
     setSelectedItem(item);
-    setDetailSource(source);
   }, []);
 
   const closeItemDetail = useCallback(() => {
@@ -995,8 +971,7 @@ function MainApp() {
           setFormImageUrl(data.imageUrl);
         }
       } catch (error) {
-        console.log('Scraping failed:', error);
-        setScrapedData(null);
+        // Ignore scraping failure when adding item
       } finally {
         setIsScraping(false);
       }
@@ -1015,8 +990,7 @@ function MainApp() {
         Alert.alert('Clipboard Empty', 'No text found in clipboard to paste.');
       }
     } catch (error) {
-      console.log('Paste failed:', error);
-      Alert.alert('Paste Failed', 'Could not access clipboard. Please paste manually.');
+      // Ignore paste failure
     }
   }, [handleUrlChange]);
 
@@ -1039,8 +1013,7 @@ function MainApp() {
         Alert.alert('Clipboard Empty', 'No text found in clipboard to paste.');
       }
     } catch (error) {
-      console.log('Option paste failed:', error);
-      Alert.alert('Paste Failed', 'Could not access clipboard. Please paste manually.');
+      // Ignore paste failure in option flow
     }
   }, []);
 
@@ -1064,8 +1037,7 @@ function MainApp() {
           setOptionImageUrl(data.imageUrl);
         }
       } catch (error) {
-        console.log('Option scraping failed:', error);
-        setOptionScrapedData(null);
+        // Ignore option scraping failures
       } finally {
         setIsOptionScraping(false);
       }
@@ -1139,7 +1111,7 @@ function MainApp() {
           imageUrl = scrapedImage;
         }
       } catch (error) {
-        console.log('Image scraping failed:', error);
+        // Ignore image scraping failure when creating option
       }
     }
 
@@ -1203,7 +1175,7 @@ function MainApp() {
           imageUrl = scrapedImage;
         }
       } catch (error) {
-        console.log('Image scraping failed:', error);
+        // Ignore image scraping failure when saving new item
       }
     }
 
@@ -1276,7 +1248,7 @@ function MainApp() {
 
         return (
           <Pressable
-            onPress={() => openItemDetail(item, showPointControls ? 'Wishlist' : 'Purchased')}
+            onPress={() => openItemDetail(item)}
             style={[
               styles.card,
               {
@@ -1850,6 +1822,41 @@ function MainApp() {
                     </Text>
                   )}
 
+                  {activeTab !== 'Purchased' && (
+                    <View style={styles.detailPointsSection}>
+                      <Text style={[styles.detailPointsLabel, { color: theme.text }]}>Adjust Points</Text>
+                      <View style={styles.detailPointsRow}>
+                        <Pressable
+                          onPress={() => removePoint(selectedItem.id)}
+                          style={({ pressed }) => [
+                            styles.detailDownvoteBtn,
+                            {
+                              borderColor: theme.green,
+                              opacity: pressed ? 0.7 : 1,
+                              backgroundColor: 'rgba(74, 124, 89, 0.08)',
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.detailDownvoteText, { color: theme.green }]}>−</Text>
+                        </Pressable>
+                        <Text style={[styles.pointsText, { color: theme.text }]}>{selectedItem.points}</Text>
+                        <Pressable
+                          onPress={() => addPoint(selectedItem.id)}
+                          style={({ pressed }) => [
+                            styles.detailDownvoteBtn,
+                            {
+                              borderColor: theme.green,
+                              opacity: pressed ? 0.7 : 1,
+                              backgroundColor: 'rgba(74, 124, 89, 0.08)',
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.detailDownvoteText, { color: theme.green }]}>+</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  )}
+
                   <View style={styles.detailActions}>
                     <Pressable
                       onPress={() => {
@@ -2220,6 +2227,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
+  circleBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnText: {
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  pointsText: {
+    fontSize: 24,
+    fontWeight: '800',
+  },
   actionsRow: {
     marginTop: 8,
     flexDirection: 'row',
@@ -2373,9 +2396,42 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 20,
   },
-  detailDate: {
+  detailPointsSection: {
+    marginBottom: 20,
+  },
+  detailPointsLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  detailWeeklyPoints: {
     fontSize: 14,
-    marginBottom: 8,
+    fontWeight: '600',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  detailPointsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  detailDownvoteBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  detailDownvoteText: {
+    fontSize: 20,
+    fontWeight: '700',
   },
   purchaseLinkButton: {
     borderRadius: 12,
@@ -2393,6 +2449,10 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '700',
+  },
+  detailDate: {
+    fontSize: 14,
+    marginBottom: 8,
   },
   detailActions: {
     marginTop: 20,

@@ -27,8 +27,6 @@ final class ShareViewController: UIViewController {
     view.backgroundColor = .systemBackground
     layout()
 
-    NSLog("[HangfireShareExtension] viewDidLoad")
-
     DispatchQueue.main.async { [weak self] in
       self?.handleSharedContent()
     }
@@ -49,39 +47,31 @@ final class ShareViewController: UIViewController {
   }
 
   private func handleSharedContent() {
-    NSLog("[HangfireShareExtension] handleSharedContent called")
     guard let item = extensionContext?.inputItems.first as? NSExtensionItem else {
-      NSLog("[HangfireShareExtension] No extension item; closing")
       closeExtension()
       return
     }
 
     let attachments = item.attachments ?? []
-    NSLog("[HangfireShareExtension] attachments count: %ld", attachments.count)
 
     if let provider = attachments.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.url.identifier) }) {
-      NSLog("[HangfireShareExtension] Found URL provider")
       loadItem(from: provider, typeIdentifier: UTType.url.identifier)
       return
     }
 
     if let provider = attachments.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.text.identifier) }) {
-      NSLog("[HangfireShareExtension] Found text provider")
       loadItem(from: provider, typeIdentifier: UTType.text.identifier)
       return
     }
 
-    NSLog("[HangfireShareExtension] No supported attachment types; closing")
     closeExtension()
   }
 
   private func loadItem(from provider: NSItemProvider, typeIdentifier: String) {
-    NSLog("[HangfireShareExtension] Loading item for type: %@", typeIdentifier)
     provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { [weak self] item, error in
       guard let self = self else { return }
 
-      if let error = error {
-        NSLog("[HangfireShareExtension] Failed to load item: %@", error.localizedDescription)
+      if let _ = error {
         self.closeExtension()
         return
       }
@@ -97,12 +87,10 @@ final class ShareViewController: UIViewController {
       }
 
       guard let rawString = incomingURLString, !rawString.isEmpty else {
-        NSLog("[HangfireShareExtension] Loaded item is empty")
         self.closeExtension()
         return
       }
 
-      NSLog("[HangfireShareExtension] Loaded string: %@", rawString)
       self.openHangfire(with: rawString)
     }
   }
@@ -112,7 +100,6 @@ final class ShareViewController: UIViewController {
 
     guard let encodedUrl = trimmed.addingPercentEncoding(withAllowedCharacters: CharacterSet.urlQueryAllowed),
           let targetUrl = URL(string: "hangfire://share?url=\(encodedUrl)") else {
-      NSLog("[HangfireShareExtension] Failed to encode shared string: %@", sharedString)
       closeExtension()
       return
     }
@@ -123,12 +110,10 @@ final class ShareViewController: UIViewController {
 
       context.open(targetUrl) { success in
         if !success {
-          NSLog("[HangfireShareExtension] context.open failed, attempting UIApplication fallback")
           var responder: UIResponder? = self
           while let currentResponder = responder {
             if let application = currentResponder as? UIApplication {
-              application.open(targetUrl, options: [:], completionHandler: { handled in
-                NSLog("[HangfireShareExtension] UIApplication fallback handled: %d", handled)
+              application.open(targetUrl, options: [:], completionHandler: { _ in
                 context.completeRequest(returningItems: nil, completionHandler: nil)
               })
               return

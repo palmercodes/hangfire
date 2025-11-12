@@ -46,6 +46,7 @@ const MAX_DAILY_POINTS = 15;
 const STORAGE_KEY = 'wishlist_app_state_v2';
 const GREEN = '#4A7C59';
 const Tab = createBottomTabNavigator();
+const FALLBACK_IMAGE = require('./assets/Frame2.png');
 
 function formatPrice(price: number): string {
   if (price === 0) return 'Price TBD';
@@ -1296,7 +1297,11 @@ function MainApp() {
             )}
             <View style={styles.row}>
               <Image
-                source={{ uri: displayItem.imageUrl || 'https://via.placeholder.com/96' }}
+                source={
+                  displayItem.imageUrl?.trim()
+                    ? { uri: displayItem.imageUrl }
+                    : FALLBACK_IMAGE
+                }
                 style={[styles.image, item.isPurchased ? { opacity: 0.6 } : null]}
                 resizeMode="cover"
               />

@@ -172,7 +172,10 @@ function decodeHtmlEntities(input: string | null | undefined): string | null | u
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
-    .replace(/&nbsp;/g, ' ');
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&reg;/gi, '®')
+    .replace(/&trade;/gi, '™')
+    .replace(/&copy;/gi, '©');
 
   decoded = decoded.replace(/&#(\d+);/g, (_match, dec) => {
     const code = parseInt(dec, 10);
@@ -299,13 +302,15 @@ function MainApp() {
 
   const sortedItems = useMemo(() => {
     const sourceItems = isSortingFrozen ? frozenItems : items;
-    const filtered = showPurchasedInWishlist ? sourceItems : sourceItems.filter(i => !i.isPurchased);
+    const shouldShowPurchased =
+      activeTab === 'Purchased' || (activeTab === 'Wishlist' && showPurchasedInWishlist);
+    const filtered = shouldShowPurchased ? sourceItems : sourceItems.filter(i => !i.isPurchased);
     const arr = [...filtered];
     if (sortMode === 'points') arr.sort((a, b) => b.points - a.points);
     if (sortMode === 'date') arr.sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime());
     if (sortMode === 'price') arr.sort((a, b) => b.price - a.price);
     return arr;
-  }, [items, showPurchasedInWishlist, sortMode, isSortingFrozen, frozenItems]);
+  }, [items, showPurchasedInWishlist, sortMode, isSortingFrozen, frozenItems, activeTab]);
 
   const purchasedTabItems = useMemo(() => {
     const sourceItems = isSortingFrozen ? frozenItems : items;
@@ -385,23 +390,13 @@ function MainApp() {
         if (raw) {
           const parsed: PersistedState = JSON.parse(raw);
           const today = getTodayKey();
-          
-          // Clean up old point history before loading
+
           const cleanedItems = cleanupPointHistory(parsed.items ?? []);
-          
-          console.log('Loaded', cleanedItems.length, 'items from storage');
-          if (cleanedItems.length > 0) {
-            const totalPointHistoryEntries = cleanedItems.reduce((sum, item) => 
-              sum + (item.pointHistory?.length || 0), 0
-            );
-            console.log('Total point history entries across all items:', totalPointHistoryEntries);
-          }
-          
           setItems(cleanedItems);
           setShowPurchasedInWishlist(false);
+
           if (parsed.lastResetDate === today) {
             setRemainingPoints(parsed.remainingPoints ?? MAX_DAILY_POINTS);
-            // Check if there are upvotes from today
             const hasUpvotes = cleanedItems.some(item => {
               const todayEntry = item.pointHistory?.find(entry => entry.date === today);
               return todayEntry && todayEntry.points > 0;
@@ -421,7 +416,6 @@ function MainApp() {
         }
       } catch (e) {
         console.error('Failed to load data:', e);
-        // best-effort: start fresh
         setItems(seedItems());
         setRemainingPoints(MAX_DAILY_POINTS);
         setLastResetDate(getTodayKey());
@@ -1316,7 +1310,7 @@ function MainApp() {
                       marginBottom: 4,
                     },
                   ]}
-                  numberOfLines={2}
+                  numberOfLines={3}
                 >
                   {displayItem.name}
                 </Text>
@@ -1579,86 +1573,101 @@ function MainApp() {
       <Modal visible={isAddOpen} animationType="slide" onRequestClose={() => setIsAddOpen(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.bg }}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-            <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
-              <Text style={[styles.modalTitle, { color: theme.text }]}>Add Item</Text>
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Purchase Link (optional)</Text>
-              <View style={styles.inputWithButton}>
+            <View style={{ flex: 1 }}>
+              <ScrollView
+                contentContainerStyle={{ padding: 16, paddingBottom: 160 }}
+                keyboardShouldPersistTaps="handled"
+              >
+                <Text style={[styles.modalTitle, { color: theme.text }]}>Add Item</Text>
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Purchase Link (optional)</Text>
+                <View style={styles.inputWithButton}>
+                  <TextInput
+                    value={formLink}
+                    onChangeText={handleUrlChange}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    placeholder="https://..."
+                    placeholderTextColor={theme.subtext}
+                    style={[styles.input, { color: theme.text, borderColor: theme.border, flex: 1, marginRight: 8 }]}
+                  />
+                  <Pressable onPress={handlePaste} style={[styles.pasteButton, { borderColor: theme.border }]}>
+                    <Text style={[styles.pasteButtonText, { color: theme.text }]}>Paste</Text>
+                  </Pressable>
+                </View>
+
+                {isScraping && (
+                  <View style={styles.scrapingIndicator}>
+                    <Text style={[styles.scrapingText, { color: theme.subtext }]}>🔍 Scraping product data...</Text>
+                  </View>
+                )}
+
+                {scrapedData && (scrapedData.name || scrapedData.price !== null || scrapedData.imageUrl) && (
+                  <View style={[styles.scrapedPreview, { backgroundColor: theme.card, borderColor: theme.border }]}> 
+                    <Text style={[styles.scrapedPreviewTitle, { color: theme.text }]}>✨ Scraped Data</Text>
+                    {scrapedData.imageUrl && (
+                      <Image source={{ uri: scrapedData.imageUrl }} style={styles.scrapedImage} resizeMode="contain" />
+                    )}
+                    <Text style={[styles.scrapedPreviewText, { color: theme.text }]}>
+                      {scrapedData.name && `Name: ${scrapedData.name}`}
+                      {scrapedData.price !== null && `\nPrice: ${formatPrice(scrapedData.price)}`}
+                      {scrapedData.imageUrl && '\nImage: Found'}
+                    </Text>
+                  </View>
+                )}
+
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Name</Text>
                 <TextInput
-                  value={formLink}
-                  onChangeText={handleUrlChange}
+                  value={formName}
+                  onChangeText={setFormName}
+                  placeholder="Item name"
+                  placeholderTextColor={theme.subtext}
+                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                />
+
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Price (optional)</Text>
+                <TextInput
+                  value={formPrice}
+                  onChangeText={setFormPrice}
+                  keyboardType="decimal-pad"
+                  placeholder="50 (optional)"
+                  placeholderTextColor={theme.subtext}
+                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                />
+
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Image URL (optional)</Text>
+                <TextInput
+                  value={formImageUrl}
+                  onChangeText={setFormImageUrl}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  placeholder="https://..."
+                  placeholder="https:// or file path"
                   placeholderTextColor={theme.subtext}
-                  style={[styles.input, { color: theme.text, borderColor: theme.border, flex: 1, marginRight: 8 }]}
+                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
                 />
-                <Pressable onPress={handlePaste} style={[styles.pasteButton, { borderColor: theme.border }]}>
-                  <Text style={[styles.pasteButtonText, { color: theme.text }]}>Paste</Text>
+
+                <Pressable onPress={pickImage} style={({ pressed }) => [styles.pickBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}> 
+                  <Text style={{ color: theme.text }}>Pick from Photos</Text>
                 </Pressable>
-              </View>
 
-              {isScraping && (
-                <View style={styles.scrapingIndicator}>
-                  <Text style={[styles.scrapingText, { color: theme.subtext }]}>🔍 Scraping product data...</Text>
-                </View>
-              )}
+                {formImageUrl ? (
+                  <Image source={{ uri: formImageUrl }} style={{ width: '100%', height: 180, borderRadius: 12, marginTop: 12 }} resizeMode="contain" />
+                ) : null}
+              </ScrollView>
 
-              {scrapedData && (scrapedData.name || scrapedData.price !== null || scrapedData.imageUrl) && (
-                <View style={[styles.scrapedPreview, { backgroundColor: theme.card, borderColor: theme.border }]}> 
-                  <Text style={[styles.scrapedPreviewTitle, { color: theme.text }]}>✨ Scraped Data</Text>
-                  {scrapedData.imageUrl && (
-                    <Image source={{ uri: scrapedData.imageUrl }} style={styles.scrapedImage} resizeMode="contain" />
-                  )}
-                  <Text style={[styles.scrapedPreviewText, { color: theme.text }]}>
-                    {scrapedData.name && `Name: ${scrapedData.name}`}
-                    {scrapedData.price !== null && `\nPrice: ${formatPrice(scrapedData.price)}`}
-                    {scrapedData.imageUrl && '\nImage: Found'}
-                  </Text>
-                </View>
-              )}
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Name</Text>
-              <TextInput
-                value={formName}
-                onChangeText={setFormName}
-                placeholder="Item name"
-                placeholderTextColor={theme.subtext}
-                style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-              />
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Price (optional)</Text>
-              <TextInput
-                value={formPrice}
-                onChangeText={setFormPrice}
-                keyboardType="decimal-pad"
-                placeholder="50 (optional)"
-                placeholderTextColor={theme.subtext}
-                style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-              />
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Image URL</Text>
-              <TextInput
-                value={formImageUrl}
-                onChangeText={setFormImageUrl}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="https:// or file path"
-                placeholderTextColor={theme.subtext}
-                style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-              />
-
-              <Pressable onPress={pickImage} style={({ pressed }) => [styles.pickBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}> 
-                <Text style={{ color: theme.text }}>Pick from Photos</Text>
-              </Pressable>
-
-              {formImageUrl ? (
-                <Image source={{ uri: formImageUrl }} style={{ width: '100%', height: 180, borderRadius: 12, marginTop: 12 }} resizeMode="contain" />
-              ) : null}
-
-              <View style={{ height: 16 }} />
-
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Pressable onPress={() => setIsAddOpen(false)} style={({ pressed }) => [styles.cancelBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}> 
+              <View
+                style={[
+                  styles.modalActionBar,
+                  {
+                    borderTopColor: theme.border,
+                    backgroundColor: theme.bg,
+                    paddingBottom: Math.max(insets.bottom, 16),
+                  },
+                ]}
+              >
+                <Pressable
+                  onPress={() => setIsAddOpen(false)}
+                  style={({ pressed }) => [styles.cancelBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}
+                > 
                   <Text style={{ color: theme.text }}>Cancel</Text>
                 </Pressable>
                 <Pressable
@@ -1671,7 +1680,7 @@ function MainApp() {
                   </Text>
                 </Pressable>
               </View>
-            </ScrollView>
+            </View>
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
@@ -1754,7 +1763,7 @@ function MainApp() {
                   ) : (
                     <View>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                        <Text style={[styles.detailTitle, { color: theme.text, flex: 1, marginRight: 12 }]} numberOfLines={2}> {displayItem.name}</Text>
+                        <Text style={[styles.detailTitle, { color: theme.text, flex: 1, marginRight: 12 }]} numberOfLines={3}>{displayItem.name}</Text>
                         <Pressable onPress={startEditingItem} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1, flexShrink: 0 }]}> 
                           <Text style={{ color: theme.green, fontSize: 16 }}>✏️ Edit</Text>
                         </Pressable>
@@ -1846,41 +1855,6 @@ function MainApp() {
                     </Text>
                   )}
 
-                  {activeTab !== 'Purchased' && (
-                    <View style={styles.detailPointsSection}>
-                      <Text style={[styles.detailPointsLabel, { color: theme.text }]}>Adjust Points</Text>
-                      <View style={styles.detailPointsRow}>
-                        <Pressable
-                          onPress={() => removePoint(selectedItem.id)}
-                          style={({ pressed }) => [
-                            styles.detailDownvoteBtn,
-                            {
-                              borderColor: theme.green,
-                              opacity: pressed ? 0.7 : 1,
-                              backgroundColor: 'rgba(74, 124, 89, 0.08)',
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.detailDownvoteText, { color: theme.green }]}>−</Text>
-                        </Pressable>
-                        <Text style={[styles.pointsText, { color: theme.text }]}>{selectedItem.points}</Text>
-                        <Pressable
-                          onPress={() => addPoint(selectedItem.id)}
-                          style={({ pressed }) => [
-                            styles.detailDownvoteBtn,
-                            {
-                              borderColor: theme.green,
-                              opacity: pressed ? 0.7 : 1,
-                              backgroundColor: 'rgba(74, 124, 89, 0.08)',
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.detailDownvoteText, { color: theme.green }]}>+</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  )}
-
                   <View style={styles.detailActions}>
                     <Pressable
                       onPress={() => {
@@ -1934,85 +1908,100 @@ function MainApp() {
               <View style={{ width: 60 }} />
             </View>
 
-            <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Purchase Link (optional)</Text>
-              <View style={styles.inputWithButton}>
+            <View style={{ flex: 1 }}>
+              <ScrollView
+                contentContainerStyle={{ padding: 16, paddingBottom: 160 }}
+                keyboardShouldPersistTaps="handled"
+              >
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Purchase Link (optional)</Text>
+                <View style={styles.inputWithButton}>
+                  <TextInput
+                    value={optionLink}
+                    onChangeText={handleOptionUrlChange}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    placeholder="https://..."
+                    placeholderTextColor={theme.subtext}
+                    style={[styles.input, { color: theme.text, borderColor: theme.border, flex: 1, marginRight: 8 }]}
+                  />
+                  <Pressable onPress={handleOptionPaste} style={[styles.pasteButton, { borderColor: theme.border }]}>
+                    <Text style={[styles.pasteButtonText, { color: theme.text }]}>Paste</Text>
+                  </Pressable>
+                </View>
+
+                {isOptionScraping && (
+                  <View style={styles.scrapingIndicator}>
+                    <Text style={[styles.scrapingText, { color: theme.subtext }]}>🔍 Scraping product data...</Text>
+                  </View>
+                )}
+
+                {optionScrapedData && (optionScrapedData.name || optionScrapedData.price !== null || optionScrapedData.imageUrl) && (
+                  <View style={[styles.scrapedPreview, { backgroundColor: theme.card, borderColor: theme.border }]}> 
+                    <Text style={[styles.scrapedPreviewTitle, { color: theme.text }]}>✨ Scraped Data</Text>
+                    {optionScrapedData.imageUrl && (
+                      <Image source={{ uri: optionScrapedData.imageUrl }} style={styles.scrapedImage} resizeMode="contain" />
+                    )}
+                    <Text style={[styles.scrapedPreviewText, { color: theme.text }]}>
+                      {optionScrapedData.name && `Name: ${optionScrapedData.name}`}
+                      {optionScrapedData.price !== null && `\nPrice: ${formatPrice(optionScrapedData.price)}`}
+                      {optionScrapedData.imageUrl && '\nImage: Found'}
+                    </Text>
+                  </View>
+                )}
+
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Option Name</Text>
                 <TextInput
-                  value={optionLink}
-                  onChangeText={handleOptionUrlChange}
+                  value={optionName}
+                  onChangeText={setOptionName}
+                  placeholder="e.g., Cervelo P5"
+                  placeholderTextColor={theme.subtext}
+                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                />
+
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Price (optional)</Text>
+                <TextInput
+                  value={optionPrice}
+                  onChangeText={setOptionPrice}
+                  keyboardType="decimal-pad"
+                  placeholder="50 (optional)"
+                  placeholderTextColor={theme.subtext}
+                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                />
+
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Image URL</Text>
+                <TextInput
+                  value={optionImageUrl}
+                  onChangeText={setOptionImageUrl}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  placeholder="https://..."
+                  placeholder="https:// or file path"
                   placeholderTextColor={theme.subtext}
-                  style={[styles.input, { color: theme.text, borderColor: theme.border, flex: 1, marginRight: 8 }]}
+                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
                 />
-                <Pressable onPress={handleOptionPaste} style={[styles.pasteButton, { borderColor: theme.border }]}>
-                  <Text style={[styles.pasteButtonText, { color: theme.text }]}>Paste</Text>
+
+                <Pressable onPress={pickOptionImage} style={({ pressed }) => [styles.pickBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}> 
+                  <Text style={{ color: theme.text }}>Pick from Photos</Text>
                 </Pressable>
-              </View>
 
-              {isOptionScraping && (
-                <View style={styles.scrapingIndicator}>
-                  <Text style={[styles.scrapingText, { color: theme.subtext }]}>🔍 Scraping product data...</Text>
-                </View>
-              )}
+                {optionImageUrl ? (
+                  <Image source={{ uri: optionImageUrl }} style={{ width: '100%', height: 180, borderRadius: 12, marginTop: 12 }} resizeMode="contain" />
+                ) : null}
+              </ScrollView>
 
-              {optionScrapedData && (optionScrapedData.name || optionScrapedData.price !== null || optionScrapedData.imageUrl) && (
-                <View style={[styles.scrapedPreview, { backgroundColor: theme.card, borderColor: theme.border }]}> 
-                  <Text style={[styles.scrapedPreviewTitle, { color: theme.text }]}>✨ Scraped Data</Text>
-                  {optionScrapedData.imageUrl && (
-                    <Image source={{ uri: optionScrapedData.imageUrl }} style={styles.scrapedImage} resizeMode="contain" />
-                  )}
-                  <Text style={[styles.scrapedPreviewText, { color: theme.text }]}>
-                    {optionScrapedData.name && `Name: ${optionScrapedData.name}`}
-                    {optionScrapedData.price !== null && `\nPrice: ${formatPrice(optionScrapedData.price)}`}
-                    {optionScrapedData.imageUrl && '\nImage: Found'}
-                  </Text>
-                </View>
-              )}
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Option Name</Text>
-              <TextInput
-                value={optionName}
-                onChangeText={setOptionName}
-                placeholder="e.g., Cervelo P5"
-                placeholderTextColor={theme.subtext}
-                style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-              />
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Price (optional)</Text>
-              <TextInput
-                value={optionPrice}
-                onChangeText={setOptionPrice}
-                keyboardType="decimal-pad"
-                placeholder="50 (optional)"
-                placeholderTextColor={theme.subtext}
-                style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-              />
-
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Image URL</Text>
-              <TextInput
-                value={optionImageUrl}
-                onChangeText={setOptionImageUrl}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="https:// or file path"
-                placeholderTextColor={theme.subtext}
-                style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-              />
-
-              <Pressable onPress={pickOptionImage} style={({ pressed }) => [styles.pickBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}> 
-                <Text style={{ color: theme.text }}>Pick from Photos</Text>
-              </Pressable>
-
-              {optionImageUrl ? (
-                <Image source={{ uri: optionImageUrl }} style={{ width: '100%', height: 180, borderRadius: 12, marginTop: 12 }} resizeMode="contain" />
-              ) : null}
-
-              <View style={{ height: 16 }} />
-
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Pressable onPress={() => setIsAddOptionOpen(false)} style={({ pressed }) => [styles.cancelBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}> 
+              <View
+                style={[
+                  styles.modalActionBar,
+                  {
+                    borderTopColor: theme.border,
+                    backgroundColor: theme.bg,
+                    paddingBottom: Math.max(insets.bottom, 16),
+                  },
+                ]}
+              >
+                <Pressable
+                  onPress={() => setIsAddOptionOpen(false)}
+                  style={({ pressed }) => [styles.cancelBtn, { borderColor: theme.border, opacity: pressed ? 0.7 : 1 }]}
+                > 
                   <Text style={{ color: theme.text }}>Cancel</Text>
                 </Pressable>
                 <Pressable
@@ -2025,7 +2014,7 @@ function MainApp() {
                   </Text>
                 </Pressable>
               </View>
-            </ScrollView>
+            </View>
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
@@ -2338,6 +2327,15 @@ const styles = StyleSheet.create({
     minWidth: 120,
     alignItems: 'center',
   },
+  modalActionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    gap: 12,
+  },
   // Detail Modal Styles
   detailHeader: {
     flexDirection: 'row',
@@ -2411,7 +2409,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   detailTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '800',
     marginBottom: 8,
   },
@@ -2420,49 +2418,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 20,
   },
-  detailPointsSection: {
-    marginBottom: 20,
-  },
-  detailPointsLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  detailWeeklyPoints: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  detailPointsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-  },
-  detailDownvoteBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  detailDownvoteText: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
   purchaseLinkButton: {
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 20,
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 12,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
